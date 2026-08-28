@@ -111,7 +111,7 @@ func (gt *guildsTree) unreadStyle(indication ningen.UnreadIndication) tcell.Styl
 	var style tcell.Style
 	switch indication {
 	case ningen.ChannelRead:
-		style = style.Dim(true)
+		style = style.Foreground(tcell.NewHexColor(0x8a8a8a))
 	case ningen.ChannelMentioned:
 		style = style.Underline(true)
 		fallthrough
