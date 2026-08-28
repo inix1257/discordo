@@ -372,10 +372,6 @@ func (ml *messagesList) drawAuthor(builder *tview.LineBuilder, message discord.M
 	foreground := tcell.ColorDefault
 
 	if member := ml.memberForMessage(message); member != nil {
-		if member.Nick != "" {
-			name = member.Nick
-		}
-
 		color, ok := state.MemberColor(member, func(id discord.RoleID) *discord.Role {
 			r, _ := ml.chat.state.Cabinet.Role(message.GuildID, id)
 			return r
