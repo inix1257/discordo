@@ -10,6 +10,7 @@ import (
 	"github.com/ayn2op/ningen/v3"
 	"github.com/ayn2op/tview"
 	"github.com/ayn2op/tview/grid"
+	"github.com/ayn2op/tview/list"
 	"github.com/ayn2op/tview/picker"
 )
 
@@ -61,6 +62,9 @@ func ConfigurePicker(model *picker.Model, cfg *config.Config, title string) {
 		SelectBottom: cfg.Keybinds.Picker.SelectBottom.Keybind,
 		Select:       cfg.Keybinds.Picker.Select.Keybind,
 	})
+	if l, ok := model.GetItem(1).(*list.Model); ok {
+		l.SetCenterCursor(false)
+	}
 }
 
 // Centered creates a new grid with provided primitive aligned in the center.
