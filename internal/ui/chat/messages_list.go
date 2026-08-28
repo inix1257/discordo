@@ -354,7 +354,7 @@ func (ml *messagesList) drawReactions(builder *tview.LineBuilder, reactions []di
 		if reaction.Me {
 			style = ml.cfg.Theme.MessagesList.OwnReactionStyle.Style
 		}
-		builder.Write(name+" "+strconv.Itoa(reaction.Count), tview.MergeStyle(baseStyle, style))
+		builder.Write("["+name+" "+strconv.Itoa(reaction.Count)+"]", tview.MergeStyle(baseStyle, style))
 	}
 }
 

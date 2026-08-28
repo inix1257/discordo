@@ -242,7 +242,7 @@ emoji_style = { foreground = "green" }
 url_style = { foreground = "blue" }
 attachment_style = { foreground = "yellow" }
 reaction_style = { attributes = "dim" }
-own_reaction_style = { attributes = "bold" }
+own_reaction_style = { foreground = "cyan", attributes = "bold" }
 message_style = {}
 selected_message_style = { attributes = "reverse" }
 
