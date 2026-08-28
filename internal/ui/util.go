@@ -122,6 +122,10 @@ func ChannelToString(channel discord.Channel, icons config.Icons, state *ningen.
 }
 
 func HideChannel(state *ningen.State, channel discord.Channel) bool {
+	switch channel.Type {
+	case discord.GuildVoice, discord.GuildStageVoice:
+		return true
+	}
 	return state.MutedState.Channel(channel.ID) || state.MutedState.Category(channel.ID)
 }
 
