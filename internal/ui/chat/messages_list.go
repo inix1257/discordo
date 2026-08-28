@@ -84,6 +84,7 @@ func newMessagesList(cfg *config.Config, chat *Model) *messagesList {
 	ml.SetTitle("Messages")
 	ml.SetBuilder(ml.buildItem)
 	ml.SetTrackEnd(true)
+	ml.SetCenterCursor(false)
 	ml.SetSelectedStyle(cfg.Theme.MessagesList.SelectedMessageStyle.Style)
 	ml.SetKeybinds(list.Keybinds{
 		ScrollUp:     cfg.Keybinds.MessagesList.ScrollUp.Keybind,
