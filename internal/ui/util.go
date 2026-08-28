@@ -121,6 +121,10 @@ func ChannelToString(channel discord.Channel, icons config.Icons, state *ningen.
 	return icon + channel.Name
 }
 
+func HideChannel(state *ningen.State, channel discord.Channel) bool {
+	return state.MutedState.Channel(channel.ID) || state.MutedState.Category(channel.ID)
+}
+
 func SortGuildChannels(channels []discord.Channel) {
 	slices.SortFunc(channels, func(a, b discord.Channel) int {
 		return cmp.Compare(a.Position, b.Position)

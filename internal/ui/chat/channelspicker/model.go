@@ -53,6 +53,9 @@ func (m *Model) RefreshChannels(state *ningen.State) {
 
 	ui.SortPrivateChannels(privateChannels)
 	for _, channel := range privateChannels {
+		if ui.HideChannel(state, channel) {
+			continue
+		}
 		items = append(items, m.channelItem(state, nil, channel))
 	}
 
@@ -70,6 +73,9 @@ func (m *Model) RefreshChannels(state *ningen.State) {
 		}
 
 		for _, channel := range channels {
+			if ui.HideChannel(state, channel) {
+				continue
+			}
 			items = append(items, m.channelItem(state, &guild, channel))
 		}
 	}

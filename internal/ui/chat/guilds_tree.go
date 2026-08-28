@@ -167,6 +167,10 @@ func (gt *guildsTree) createGuildNode(parent *tree.Node, guild discord.Guild) {
 }
 
 func (gt *guildsTree) createChannelNode(parent *tree.Node, channel discord.Channel) {
+	if ui.HideChannel(gt.state, channel) {
+		return
+	}
+
 	if channel.Type != discord.DirectMessage && channel.Type != discord.GroupDM && channel.Type != discord.GuildCategory && !gt.state.HasPermissions(channel.ID, discord.PermissionViewChannel) {
 		return
 	}
@@ -209,7 +213,7 @@ func (gt *guildsTree) createChannelNodes(node *tree.Node, channels []discord.Cha
 	// We precompute parent presence once to avoid the O(n^2) category-child scan.
 	hasChildByParentID := make(map[discord.ChannelID]struct{}, len(channels))
 	for _, channel := range channels {
-		if channel.ParentID.IsValid() {
+		if channel.ParentID.IsValid() && !ui.HideChannel(gt.state, channel) {
 			hasChildByParentID[channel.ParentID] = struct{}{}
 		}
 	}
