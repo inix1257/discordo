@@ -468,6 +468,7 @@ func (ml *messagesList) drawSnapshotContent(builder *tview.LineBuilder, parent d
 		GuildID:         parent.GuildID,
 	}
 	ml.drawContent(builder, message, baseStyle)
+	ml.drawStickers(builder, message, baseStyle)
 }
 
 func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
@@ -496,6 +497,17 @@ func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message d
 			builder.Write(a.Filename, attachmentStyle)
 		}
 	}
+
+	ml.drawStickers(builder, message, baseStyle)
+}
+
+func (ml *messagesList) drawStickers(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+	if len(message.Stickers) == 0 {
+		return
+	}
+
+	builder.NewLine()
+	builder.Write("(sticker)", baseStyle.Foreground(color.Green))
 }
 
 func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, contentRoot ast.Node, contentSource []byte) {
@@ -819,6 +831,7 @@ func (ml *messagesList) drawReplyMessage(builder *tview.LineBuilder, message dis
 		m.GuildID = message.GuildID
 		ml.drawAuthor(builder, *m, dimStyle)
 		ml.drawContent(builder, *m, dimStyle)
+		ml.drawStickers(builder, *m, dimStyle)
 	} else {
 		builder.Write("Original message was deleted", dimStyle)
 	}
