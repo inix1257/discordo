@@ -32,6 +32,8 @@ type guildsTree struct {
 	guildNodeByID   map[discord.GuildID]*tree.Node
 	channelNodeByID map[discord.ChannelID]*tree.Node
 	dmRootNode      *tree.Node
+
+	loadingChannelID discord.ChannelID
 }
 
 func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
@@ -316,6 +318,7 @@ func (gt *guildsTree) onSelected(node *tree.Node) tview.Cmd {
 }
 
 func (gt *guildsTree) loadChannel(channel discord.Channel) tview.Cmd {
+	gt.loadingChannelID = channel.ID
 	limit := uint(gt.cfg.MessagesLimit)
 	return func() tview.Msg {
 		messages, err := gt.state.Messages(channel.ID, limit)
@@ -406,38 +409,6 @@ func (gt *guildsTree) findNodeByReference(reference any) *tree.Node {
 			return true
 		})
 		return found
-	}
-}
-
-func (gt *guildsTree) findNodeByChannelID(channelID discord.ChannelID) *tree.Node {
-	channel, err := gt.state.Cabinet.Channel(channelID)
-	if err != nil {
-		slog.Error("failed to get channel", "channel_id", channelID, "err", err)
-		return nil
-	}
-
-	var reference any
-	if guildID := channel.GuildID; guildID.IsValid() {
-		reference = guildID
-	} else {
-		reference = dmNode{}
-	}
-	if parent := gt.findNodeByReference(reference); parent != nil {
-		if len(parent.Children()) == 0 {
-			gt.onSelected(parent)
-		}
-	}
-
-	node := gt.findNodeByReference(channelID)
-	return node
-}
-
-func (gt *guildsTree) expandPathToNode(node *tree.Node) {
-	if node == nil {
-		return
-	}
-	for _, n := range gt.GetPath(node) {
-		n.Expand()
 	}
 }
 

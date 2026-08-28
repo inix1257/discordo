@@ -191,19 +191,11 @@ func (m *Model) navigateToChannel(channelID discord.ChannelID) tview.Cmd {
 		return nil
 	}
 
-	node := m.guildsTree.findNodeByChannelID(channel.ID)
-	if node == nil {
-		slog.Error("failed to locate channel in tree", "channel_id", channel.ID)
-		return nil
-	}
-
-	m.guildsTree.expandPathToNode(node)
-	m.guildsTree.SetCurrentNode(node)
 	focus := m.closePicker()
-	if channel.Type != discord.GuildCategory {
-		return tview.Sequence(focus, m.guildsTree.onSelected(node))
+	if channel.Type == discord.GuildCategory || channel.Type == discord.GuildForum {
+		return focus
 	}
-	return focus
+	return tview.Sequence(focus, m.guildsTree.loadChannel(*channel))
 }
 
 func (m *Model) toggleGuildsTree() tview.Cmd {
@@ -323,12 +315,7 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		}
 		return listen(m.events)
 	case channelLoadedMsg:
-		node := m.guildsTree.CurrentNode()
-		if node == nil {
-			return nil
-		}
-		channelID, ok := node.Reference().(discord.ChannelID)
-		if !ok || channelID != msg.Channel.ID {
+		if msg.Channel.ID != m.guildsTree.loadingChannelID {
 			return nil
 		}
 
