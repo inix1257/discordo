@@ -20,6 +20,7 @@ import (
 	"github.com/ayn2op/discordo/internal/ui"
 	"github.com/ayn2op/discordo/internal/ui/chat/attachmentspicker"
 	"github.com/ayn2op/discordo/internal/ui/chat/channelspicker"
+	"github.com/ayn2op/discordo/internal/ui/chat/contextmenu"
 	"github.com/ayn2op/ningen/v3"
 	"github.com/ayn2op/ningen/v3/states/read"
 	"github.com/ayn2op/tview"
@@ -37,6 +38,7 @@ const (
 
 	channelsPickerLayerName    = "channelsPicker"
 	attachmentsPickerLayerName = "attachmentsPicker"
+	messageMenuLayerName       = "messageMenu"
 )
 
 type Model struct {
@@ -51,6 +53,7 @@ type Model struct {
 	messagesList   *messagesList
 	composer       *composer
 	channelsPicker *channelspicker.Model
+	messageMenu    *contextmenu.Model
 	focused        tview.Model
 
 	selectedChannel   *discord.Channel
@@ -107,6 +110,7 @@ func NewModel(cfg *config.Config, token string) *Model {
 	m.messagesList = newMessagesList(cfg, m)
 	m.composer = newComposer(cfg, m)
 	m.channelsPicker = channelspicker.NewModel(cfg)
+	m.messageMenu = contextmenu.NewModel(cfg)
 
 	m.SetBackgroundLayerStyle(m.cfg.Theme.Dialog.BackgroundStyle.Style)
 	m.buildLayout()
@@ -152,6 +156,13 @@ func (m *Model) buildLayout() {
 		layers.WithVisible(false),
 		layers.WithEnabled(false),
 	)
+	m.AddLayer(
+		m.messageMenu,
+		layers.WithName(messageMenuLayerName),
+		layers.WithResize(false),
+		layers.WithVisible(false),
+		layers.WithEnabled(false),
+	)
 }
 
 func (m *Model) togglePicker() tview.Cmd {
@@ -177,6 +188,32 @@ func (m *Model) closePicker() tview.Cmd {
 	m.RemoveLayer(channelsPickerLayerName)
 	m.channelsPicker.Refresh()
 	return tview.SetFocus(m.mainFlex)
+}
+
+func (m *Model) openMessageMenu(x, y int, items []string) tview.Cmd {
+	if len(items) == 0 {
+		return nil
+	}
+
+	m.messageMenu.SetItems(items)
+	w, h := m.messageMenu.PreferredSize()
+	_, _, maxW, maxH := m.InnerRect()
+	if x+w > maxW {
+		x = max(maxW-w, 0)
+	}
+	if y+h > maxH {
+		y = max(maxH-h, 0)
+	}
+	m.messageMenu.SetRect(x, y, w, h)
+	m.SetLayerEnabled(messageMenuLayerName, true)
+	m.ShowLayer(messageMenuLayerName).SendToFront(messageMenuLayerName)
+	return tview.SetFocus(m.messageMenu)
+}
+
+func (m *Model) closeMessageMenu() tview.Cmd {
+	m.HideLayer(messageMenuLayerName)
+	m.SetLayerEnabled(messageMenuLayerName, false)
+	return tview.SetFocus(m.messagesList)
 }
 
 func (m *Model) closeAttachmentsPicker() tview.Cmd {
@@ -351,6 +388,10 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return m.navigateToChannel(msg.ChannelID)
 	case channelspicker.CancelMsg:
 		return m.closePicker()
+	case contextmenu.SelectedMsg:
+		return tview.Sequence(m.closeMessageMenu(), m.messagesList.applyMessageMenu(msg.Text))
+	case contextmenu.CancelMsg:
+		return m.closeMessageMenu()
 	case attachmentspicker.SelectedMsg:
 		return tview.Sequence(msg.Open, m.closeAttachmentsPicker())
 	case attachmentspicker.CancelMsg:

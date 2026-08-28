@@ -26,6 +26,9 @@ func (m *Model) FullHelp() [][]keybind.Keybind {
 }
 
 func (m *Model) activeKeyMap() help.KeyMap {
+	if m.GetVisible(messageMenuLayerName) {
+		return nil
+	}
 	if m.GetVisible(channelsPickerLayerName) {
 		return m.channelsPicker
 	}

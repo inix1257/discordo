@@ -899,6 +899,13 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.DeleteConfirm.Keybind):
 			return ml.confirmDelete()
 		}
+	case tview.MouseMsg:
+		if msg.Action == tview.MouseRightClick {
+			ml.Model.Update(tview.MouseMsg{EventMouse: msg.EventMouse, Action: tview.MouseLeftClick})
+			ml.onRowCursorChanged(ml.Model.Cursor())
+			x, y := msg.Position()
+			return ml.showMessageMenu(x, y)
+		}
 	case olderMessagesLoadedMsg:
 		selectedChannel, ok := ml.chat.SelectedChannel()
 		if !ok || selectedChannel.ID != msg.ChannelID {
@@ -1073,6 +1080,86 @@ func (ml *messagesList) yankURL() tview.Cmd {
 		}
 		return nil
 	}
+}
+
+const (
+	messageMenuCopy          = "Copy"
+	messageMenuCopyURL       = "Copy URL"
+	messageMenuCopyID        = "Copy ID"
+	messageMenuMention       = "Mention"
+	messageMenuReply         = "Reply"
+	messageMenuReplyMention  = "Reply (mention)"
+	messageMenuEdit          = "Edit"
+	messageMenuDelete        = "Delete"
+	messageMenuOpen          = "Open"
+)
+
+func (ml *messagesList) messageMenuItems() []string {
+	items := []string{messageMenuCopy, messageMenuCopyURL, messageMenuCopyID, messageMenuMention}
+	selectedMessage, ok := ml.selectedMessage()
+	if !ok {
+		return items
+	}
+
+	if ml.chat.isMe(selectedMessage.Author.ID) {
+		items = append(items, messageMenuEdit)
+	} else {
+		items = append(items, messageMenuReply, messageMenuReplyMention)
+	}
+	if ml.canDeleteMessage(*selectedMessage) {
+		items = append(items, messageMenuDelete)
+	}
+	if len(messageURLs(*selectedMessage)) != 0 || len(selectedMessage.Attachments) != 0 {
+		items = append(items, messageMenuOpen)
+	}
+	return items
+}
+
+func (ml *messagesList) showMessageMenu(x, y int) tview.Cmd {
+	if _, ok := ml.selectedMessage(); !ok {
+		return nil
+	}
+	return ml.chat.openMessageMenu(x, y, ml.messageMenuItems())
+}
+
+func (ml *messagesList) applyMessageMenu(choice string) tview.Cmd {
+	switch choice {
+	case messageMenuCopy:
+		return ml.yankContent()
+	case messageMenuCopyURL:
+		return ml.yankURL()
+	case messageMenuCopyID:
+		return ml.yankMessageID()
+	case messageMenuMention:
+		return ml.mentionAuthor()
+	case messageMenuReply:
+		return ml.reply(false)
+	case messageMenuReplyMention:
+		return ml.reply(true)
+	case messageMenuEdit:
+		return ml.editSelectedMessage()
+	case messageMenuDelete:
+		return ml.confirmDelete()
+	case messageMenuOpen:
+		return ml.open()
+	default:
+		return nil
+	}
+}
+
+func (ml *messagesList) mentionAuthor() tview.Cmd {
+	selectedMessage, ok := ml.selectedMessage()
+	if !ok || ml.chat.composer.Disabled() {
+		return nil
+	}
+
+	mention := "@" + selectedMessage.Author.Username
+	text := ml.chat.composer.Text()
+	if text != "" && !strings.HasSuffix(text, " ") && !strings.HasSuffix(text, "\n") {
+		mention = " " + mention
+	}
+	ml.chat.composer.SetText(text+mention+" ", true)
+	return tview.SetFocus(ml.chat.composer)
 }
 
 func (ml *messagesList) open() tview.Cmd {
