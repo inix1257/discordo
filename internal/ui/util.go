@@ -129,6 +129,10 @@ func HideChannel(state *ningen.State, channel discord.Channel) bool {
 	switch channel.Type {
 	case discord.GuildVoice, discord.GuildStageVoice:
 		return true
+	case discord.GuildPublicThread, discord.GuildPrivateThread, discord.GuildAnnouncementThread:
+		if !ThreadIsSubscribed(state, channel.ID) {
+			return true
+		}
 	}
 	return state.MutedState.Channel(channel.ID) || state.MutedState.Category(channel.ID)
 }

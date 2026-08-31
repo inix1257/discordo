@@ -98,6 +98,7 @@ func NewModel(cfg *config.Config, token string) *Model {
 	session.Client = http.NewClient(token)
 	state := state.NewFromSession(session, defaultstore.New())
 	m.state = ningen.FromState(state)
+	ui.TrackThreadMembership(m.state)
 
 	m.events = make(chan gateway.Event)
 	m.state.AddHandler(m.events)
@@ -389,7 +390,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 	case channelspicker.CancelMsg:
 		return m.closePicker()
 	case contextmenu.SelectedMsg:
-		return tview.Sequence(m.closeMessageMenu(), m.messagesList.applyMessageMenu(msg.Text))
+		cmd := m.messagesList.applyMessageMenu(msg.Text)
+		return tview.Sequence(m.closeMessageMenu(), cmd)
 	case contextmenu.CancelMsg:
 		return m.closeMessageMenu()
 	case attachmentspicker.SelectedMsg:
