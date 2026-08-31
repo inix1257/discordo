@@ -1037,19 +1037,24 @@ func (ml *messagesList) fetchOlderMessages() tview.Cmd {
 	}
 }
 
+func writeClipboardText(text string) tview.Cmd {
+	if text == "" {
+		return nil
+	}
+	return func() tview.Msg {
+		if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte(text)); err != nil {
+			slog.Error("failed to write to clipboard", "err", err)
+		}
+		return nil
+	}
+}
+
 func (ml *messagesList) yankMessageID() tview.Cmd {
 	selectedMessage, ok := ml.selectedMessage()
 	if !ok {
 		return nil
 	}
-
-	return func() tview.Msg {
-		if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte(selectedMessage.ID.String())); err != nil {
-			slog.Error("failed to write to clipboard", "err", err)
-			return nil
-		}
-		return nil
-	}
+	return writeClipboardText(selectedMessage.ID.String())
 }
 
 func (ml *messagesList) yankContent() tview.Cmd {
@@ -1057,14 +1062,7 @@ func (ml *messagesList) yankContent() tview.Cmd {
 	if !ok {
 		return nil
 	}
-
-	return func() tview.Msg {
-		if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte(selectedMessage.Content)); err != nil {
-			slog.Error("failed to write to clipboard", "err", err)
-			return nil
-		}
-		return nil
-	}
+	return writeClipboardText(messageCopyText(*selectedMessage))
 }
 
 func (ml *messagesList) yankURL() tview.Cmd {
@@ -1072,19 +1070,48 @@ func (ml *messagesList) yankURL() tview.Cmd {
 	if !ok {
 		return nil
 	}
+	return writeClipboardText(selectedMessage.URL())
+}
 
-	return func() tview.Msg {
-		if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte(selectedMessage.URL())); err != nil {
-			slog.Error("failed to write to clipboard", "err", err)
-			return nil
-		}
-		return nil
+func messageCopyText(msg discord.Message) string {
+	extra := extraCopyURLs(msg)
+	if msg.Content == "" {
+		return strings.Join(extra, "\n")
 	}
+	if len(extra) == 0 {
+		return msg.Content
+	}
+	return msg.Content + "\n" + strings.Join(extra, "\n")
+}
+
+func extraCopyURLs(msg discord.Message) []string {
+	var extra []string
+	seen := make(map[string]struct{})
+	add := func(u string) {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			return
+		}
+		if _, ok := seen[u]; ok {
+			return
+		}
+		if strings.Contains(msg.Content, u) {
+			return
+		}
+		seen[u] = struct{}{}
+		extra = append(extra, u)
+	}
+	for _, u := range messageURLs(msg) {
+		add(u)
+	}
+	for _, a := range msg.Attachments {
+		add(a.URL)
+	}
+	return extra
 }
 
 const (
 	messageMenuCopy          = "Copy"
-	messageMenuCopyURL       = "Copy URL"
 	messageMenuCopyID        = "Copy ID"
 	messageMenuMention       = "Mention"
 	messageMenuReply         = "Reply"
@@ -1095,7 +1122,7 @@ const (
 )
 
 func (ml *messagesList) messageMenuItems() []string {
-	items := []string{messageMenuCopy, messageMenuCopyURL, messageMenuCopyID, messageMenuMention}
+	items := []string{messageMenuCopy, messageMenuCopyID, messageMenuMention}
 	selectedMessage, ok := ml.selectedMessage()
 	if !ok {
 		return items
@@ -1126,8 +1153,6 @@ func (ml *messagesList) applyMessageMenu(choice string) tview.Cmd {
 	switch choice {
 	case messageMenuCopy:
 		return ml.yankContent()
-	case messageMenuCopyURL:
-		return ml.yankURL()
 	case messageMenuCopyID:
 		return ml.yankMessageID()
 	case messageMenuMention:
