@@ -1,0 +1,13 @@
+---
+description: After code changes, finish only after tests and a full build succeed
+alwaysApply: true
+---
+
+# Test and build after code changes
+
+When you change code (including tests), do not treat the task as done until both of these succeed:
+
+1. `go test ./...`
+2. `go build ./...`
+
+Run the packages you touched first if that helps, then still run the full test and build before finishing. If either fails, fix it and re-run. If you cannot run them, say so explicitly instead of implying they passed.
