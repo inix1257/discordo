@@ -34,6 +34,12 @@ type guildsTree struct {
 	dmRootNode      *tree.Node
 
 	loadingChannelID discord.ChannelID
+
+	// selectedViaMouse is set just before a mouse-click-driven selection
+	// reaches onSelected, and consumed (reset) as soon as it does. It lets a
+	// channel click keep focus on the tree instead of stealing it into the
+	// composer, without changing keyboard-driven selection behavior.
+	selectedViaMouse bool
 }
 
 func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
@@ -255,7 +261,7 @@ func isThread(t discord.ChannelType) bool {
 	}
 }
 
-func (gt *guildsTree) onSelected(node *tree.Node) tview.Cmd {
+func (gt *guildsTree) onSelected(node *tree.Node, viaMouse bool) tview.Cmd {
 	if len(node.Children()) != 0 {
 		node.SetExpanded(!node.Expanded())
 		return nil
@@ -299,7 +305,7 @@ func (gt *guildsTree) onSelected(node *tree.Node) tview.Cmd {
 			return nil
 		}
 
-		return gt.loadChannel(*channel)
+		return gt.loadChannel(*channel, viaMouse)
 	case dmNode: // Direct messages folder
 		channels, err := gt.state.PrivateChannels()
 		if err != nil {
@@ -317,7 +323,7 @@ func (gt *guildsTree) onSelected(node *tree.Node) tview.Cmd {
 	return nil
 }
 
-func (gt *guildsTree) loadChannel(channel discord.Channel) tview.Cmd {
+func (gt *guildsTree) loadChannel(channel discord.Channel, viaMouse bool) tview.Cmd {
 	gt.loadingChannelID = channel.ID
 	limit := uint(gt.cfg.MessagesLimit)
 	return func() tview.Msg {
@@ -332,7 +338,7 @@ func (gt *guildsTree) loadChannel(channel discord.Channel) tview.Cmd {
 			go gt.state.ReadState.MarkRead(channel.ID, lastMessageID)
 		}
 
-		return channelLoadedMsg{Channel: channel, Messages: messages}
+		return channelLoadedMsg{Channel: channel, Messages: messages, KeepTreeFocus: viaMouse}
 	}
 }
 
@@ -352,7 +358,9 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 	case tview.FocusMsg:
 		return tview.Sequence(gt.Model.Update(msg), focused(gt))
 	case tree.SelectedMsg:
-		return gt.onSelected(msg.Node)
+		viaMouse := gt.selectedViaMouse
+		gt.selectedViaMouse = false
+		return gt.onSelected(msg.Node, viaMouse)
 	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.CollapseAll.Keybind):
@@ -366,6 +374,19 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.YankID.Keybind):
 			return gt.yankID()
 		}
+	case tview.MouseMsg:
+		cmd := gt.Model.Update(msg)
+		if msg.Action == tview.MouseLeftClick {
+			gt.selectedViaMouse = true
+			// tree.Model's own mouse handler requests focus on itself (the
+			// embedded model), which bypasses this Update's FocusMsg case
+			// above (active border + chat.Model.focused tracking). Re-target
+			// focus at the wrapper so a plain click activates (and
+			// highlights) the guilds tree the same way keyboard focus
+			// already does.
+			return tview.Sequence(cmd, tview.SetFocus(gt))
+		}
+		return cmd
 	}
 	return gt.Model.Update(msg)
 }

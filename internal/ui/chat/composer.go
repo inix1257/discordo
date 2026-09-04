@@ -180,6 +180,18 @@ func (c *composer) Update(msg tview.Msg) tview.Cmd {
 		c.SetText(string(msg), true)
 		return nil
 
+	case tview.MouseMsg:
+		cmd := c.TextArea.Update(msg)
+		if msg.Action == tview.MouseLeftDown {
+			// TextArea's own mouse handler requests focus on itself (the
+			// embedded model), which bypasses this Update's FocusMsg case
+			// above (active border + chat.Model.focused tracking). Re-target
+			// focus at the wrapper so a plain click activates the composer
+			// the same way keyboard focus (e.g. Tab) already does.
+			return tview.Sequence(cmd, tview.SetFocus(c))
+		}
+		return cmd
+
 	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, c.cfg.Keybinds.Composer.Paste.Keybind):
