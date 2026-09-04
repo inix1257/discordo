@@ -41,6 +41,10 @@ func listen(events <-chan gateway.Event) tview.Cmd {
 type channelLoadedMsg struct {
 	Channel  discord.Channel
 	Messages []discord.Message
+	// KeepTreeFocus is set when the channel was selected via a mouse click on
+	// the guilds tree, so focus should stay on the tree instead of being
+	// stolen into the composer by AutoFocus.
+	KeepTreeFocus bool
 }
 
 type olderMessagesLoadedMsg struct {

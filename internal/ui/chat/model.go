@@ -233,7 +233,7 @@ func (m *Model) navigateToChannel(channelID discord.ChannelID) tview.Cmd {
 	if channel.Type == discord.GuildCategory || channel.Type == discord.GuildForum {
 		return focus
 	}
-	return tview.Sequence(focus, m.guildsTree.loadChannel(*channel))
+	return tview.Sequence(focus, m.guildsTree.loadChannel(*channel, false))
 }
 
 func (m *Model) toggleGuildsTree() tview.Cmd {
@@ -375,7 +375,7 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 
 		if hasNoPerm {
 			text = "You do not have permission to send messages in this channel."
-		} else if m.cfg.AutoFocus {
+		} else if m.cfg.AutoFocus && !msg.KeepTreeFocus {
 			focusCmd = m.focusComposer()
 		}
 		m.composer.SetPlaceholder(tview.NewLine(tview.NewSegment(text, tcell.StyleDefault.Dim(true))))

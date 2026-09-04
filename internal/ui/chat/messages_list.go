@@ -53,6 +53,12 @@ type messagesList struct {
 	itemByID map[discord.MessageID]*tview.TextView
 
 	attachmentsPicker *attachmentspicker.Model
+
+	// fetchingOlderChannelID is the channel a fetchOlderMessages request is
+	// currently in flight for, or discord.NullChannelID when none is. Guards
+	// against repeated key-repeat/scroll-wheel triggers at cursor 0 firing a
+	// new batch before the previous one lands.
+	fetchingOlderChannelID discord.ChannelID
 }
 
 var _ help.KeyMap = (*messagesList)(nil)
@@ -103,6 +109,7 @@ func newMessagesList(cfg *config.Config, chat *Model) *messagesList {
 func (ml *messagesList) reset() {
 	ml.messages = nil
 	ml.rows = nil
+	ml.fetchingOlderChannelID = discord.NullChannelID
 	clear(ml.itemByID)
 	ml.
 		Clear().
@@ -900,18 +907,70 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 			return ml.confirmDelete()
 		}
 	case tview.MouseMsg:
-		if msg.Action == tview.MouseRightClick {
+		switch msg.Action {
+		case tview.MouseRightClick:
 			ml.Model.Update(tview.MouseMsg{EventMouse: msg.EventMouse, Action: tview.MouseLeftClick})
 			ml.onRowCursorChanged(ml.Model.Cursor())
 			x, y := msg.Position()
 			return ml.showMessageMenu(x, y)
+		case tview.MouseLeftClick:
+			cmd := ml.Model.Update(msg)
+			ml.onRowCursorChanged(ml.Model.Cursor())
+			// list.Model's own mouse handler requests focus on itself (the
+			// embedded model), which bypasses this Update's FocusMsg case
+			// above (active border + chat.Model.focused tracking). Re-target
+			// focus at the wrapper so a plain click activates the messages
+			// list the same way keyboard focus already does.
+			return tview.Sequence(cmd, tview.SetFocus(ml))
+		case tview.MouseScrollUp:
+			// Only the "top of loaded history" edge steals the wheel: mirror
+			// "SelectUp at the top" so scrolling up there keeps going and
+			// fetches more history instead of scrolling into empty space.
+			// AtTop() reflects the real viewport position (not just the
+			// cursor), so this fires however the view got to the top — 'k',
+			// the wheel itself, or a scrollbar drag that never touched the
+			// selection. Otherwise fall through to the generic mouse
+			// handling below, which scrolls the viewport without touching
+			// the selection/highlight.
+			if ml.Model.AtTop() && len(ml.messages) > 0 {
+				return ml.fetchOlderMessages()
+			}
+		case tview.MouseMove:
+			if msg.Buttons()&tcell.ButtonPrimary == 0 {
+				// Workaround for a bug in the vendored list.Model: it drops
+				// mouse capture on the very first MouseMove of a
+				// scrollbar-thumb drag instead of only on MouseLeftUp. If
+				// the drag then leaves this list's rect before the button
+				// is released, list.Model never sees that MouseLeftUp and
+				// is left thinking a drag is still active — so the next
+				// plain hover move (no button held) snaps the thumb to the
+				// cursor row. Feed it a synthetic MouseLeftUp first to
+				// force that state closed; a no-op when no drag is
+				// actually in progress.
+				ml.Model.Update(tview.MouseMsg{EventMouse: msg.EventMouse, Action: tview.MouseLeftUp})
+			}
 		}
 	case olderMessagesLoadedMsg:
+		// The in-flight fetch this message answers is done either way, so a
+		// later "top of history" hit is free to fetch again.
+		if ml.fetchingOlderChannelID == msg.ChannelID {
+			ml.fetchingOlderChannelID = discord.NullChannelID
+		}
+
 		selectedChannel, ok := ml.chat.SelectedChannel()
 		if !ok || selectedChannel.ID != msg.ChannelID {
 			return nil
 		}
+		if len(msg.Older) == 0 {
+			// No more past messages to load.
+			return nil
+		}
 		prevCursor := ml.Cursor()
+		// Captured before the repositioning below moves the cursor: true
+		// whenever the viewport was still genuinely at the top when this
+		// batch landed, regardless of whether that came from 'k', the
+		// wheel, or a scrollbar drag that never touched prevCursor at all.
+		prevWasAtTop := ml.Model.AtTop()
 
 		// Defensive invalidation if Discord returns overlapping windows.
 		for _, message := range msg.Older {
@@ -921,9 +980,24 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		ml.rebuildRows()
 
 		switch {
-		case prevCursor == 0:
-			// Preserve "SelectUp at top" semantics: move to the next older message.
-			ml.SetCursor(len(msg.Older) - 1)
+		case prevWasAtTop:
+			// Land on the next older message (preserving "SelectUp at top"
+			// semantics), but don't leave the viewport reset to the very
+			// top of all history: nudge it down so the old/new boundary
+			// sits at the middle of the screen — half newly loaded older
+			// messages above, half a resumed view of what was visible
+			// before, below — instead of stranding the user back at the
+			// absolute top on every load.
+			boundary := len(msg.Older) - 1
+			ml.SetCursor(boundary)
+			if _, _, width, height := ml.InnerRect(); width > 0 && height > 0 {
+				if boundaryRow := ml.messageToRowIndex(boundary); boundaryRow >= 0 {
+					olderHeight := ml.rowsHeight(0, boundaryRow, width)
+					if delta := olderHeight - height/2; delta > 0 {
+						ml.SetPendingScroll(delta)
+					}
+				}
+			}
 		case prevCursor > 0:
 			// Keep selection on the same message after prepend shifts indexes.
 			ml.SetCursor(prevCursor + len(msg.Older))
@@ -937,7 +1011,34 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 	}
 	cmd := ml.Model.Update(msg)
 	ml.onRowCursorChanged(ml.Model.Cursor())
+	if _, ok := msg.(tview.MouseMsg); ok {
+		// A scrollbar drag (or a track click) only queues its resulting
+		// scroll as a pending delta — list.Model doesn't resolve that into
+		// real top/offset until its next reflow, which otherwise wouldn't
+		// happen until the next render pass. Force one now so AtTop()
+		// below reflects what this event just did, not what the previous
+		// one did.
+		ml.forceReflow()
+		if ml.Model.AtTop() && len(ml.messages) > 0 {
+			// Catches whatever just landed the viewport on the true top
+			// via the generic mouse path above — most notably a scrollbar
+			// drag that list.Model just processed for real, which can't be
+			// predicted from the drag's start position and never touches
+			// the cursor/selection.
+			return tview.Batch(cmd, ml.fetchOlderMessages())
+		}
+	}
 	return cmd
+}
+
+// forceReflow resolves any pending scroll delta (from a scrollbar drag or
+// ScrollUp/Down) into list.Model's real top/offset immediately, instead of
+// waiting for the next render pass. list.Model only exposes this via
+// SetRect, so re-set the current rect to trigger it without changing
+// anything.
+func (ml *messagesList) forceReflow() {
+	x, y, width, height := ml.Rect()
+	ml.SetRect(x, y, width, height)
 }
 
 func (ml *messagesList) selectUp() tview.Cmd {
@@ -1012,6 +1113,27 @@ func (ml *messagesList) selectReply() {
 	}
 }
 
+// rowsHeight returns the total rendered height, in lines, of rows
+// [fromRow, throughRow] at the given content width. Used to reposition the
+// viewport after loading older messages so the old/new boundary lands near
+// the middle of the screen (see the olderMessagesLoadedMsg handling above)
+// instead of being pushed off it.
+func (ml *messagesList) rowsHeight(fromRow, throughRow, width int) int {
+	if width <= 0 {
+		return 0
+	}
+
+	total := 0
+	for i := fromRow; i <= throughRow; i++ {
+		item := ml.buildItem(i)
+		if item == nil {
+			continue
+		}
+		total += item.Height(width)
+	}
+	return total
+}
+
 func (ml *messagesList) fetchOlderMessages() tview.Cmd {
 	selectedChannel, ok := ml.chat.SelectedChannel()
 	if !ok {
@@ -1019,16 +1141,24 @@ func (ml *messagesList) fetchOlderMessages() tview.Cmd {
 	}
 
 	channelID := selectedChannel.ID
+	if ml.fetchingOlderChannelID == channelID {
+		// Already loading a batch for this channel (e.g. holding 'k' fires
+		// SelectUp repeatedly while cursor stays at 0 until the batch
+		// lands) — don't kick off another one.
+		return nil
+	}
+	ml.fetchingOlderChannelID = channelID
+
 	before := ml.messages[0].ID
 	limit := uint(ml.cfg.MessagesLimit)
 	return func() tview.Msg {
 		messages, err := ml.chat.state.MessagesBefore(channelID, before, limit)
 		if err != nil {
 			slog.Error("failed to fetch older messages", "err", err)
-			return nil
+			return olderMessagesLoadedMsg{ChannelID: channelID}
 		}
 		if len(messages) == 0 {
-			return nil
+			return olderMessagesLoadedMsg{ChannelID: channelID}
 		}
 
 		older := slices.Clone(messages)
