@@ -50,6 +50,10 @@ type olderMessagesLoadedMsg struct {
 
 type deleteMessageMsg discord.Message
 
+type attachmentActionMsg struct {
+	Action tview.Cmd
+}
+
 type LogoutMsg struct{}
 
 func logout() tview.Cmd {

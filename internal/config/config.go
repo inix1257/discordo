@@ -4,8 +4,11 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"mime"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"sync"
 	"unicode/utf8"
 
@@ -13,6 +16,45 @@ import (
 	"github.com/ayn2op/arikawa/v3/discord"
 	"github.com/ayn2op/discordo/internal/consts"
 )
+
+// MIMETypes is an allowlist of media types. Patterns may be exact ("text/plain")
+// or a wildcard such as "image/*".
+type MIMETypes []string
+
+func (types *MIMETypes) UnmarshalTOML(value any) error {
+	values, ok := value.([]any)
+	if !ok {
+		return errInvalidType
+	}
+
+	parsed := make(MIMETypes, 0, len(values))
+	for _, value := range values {
+		mediaType, ok := value.(string)
+		if !ok {
+			return errInvalidType
+		}
+		mediaType, _, err := mime.ParseMediaType(mediaType)
+		if err != nil {
+			return err
+		}
+		parsed = append(parsed, mediaType)
+	}
+
+	*types = parsed
+	return nil
+}
+
+func (types MIMETypes) Has(mediaType string) bool {
+	mediaType, _, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		return false
+	}
+
+	return slices.ContainsFunc(types, func(pattern string) bool {
+		matches, _ := path.Match(pattern, mediaType)
+		return matches
+	})
+}
 
 const fileName = "config.toml"
 
@@ -106,6 +148,7 @@ type (
 		Status              discord.Status `toml:"status"`
 		HideBlockedUsers    bool           `toml:"hide_blocked_users"`
 		ShowAttachmentLinks bool           `toml:"show_attachment_links"`
+		AllowedMIMETypes    MIMETypes      `toml:"allowed_mime_types"`
 
 		// Use 0 to disable
 		AutocompleteLimit uint8 `toml:"autocomplete_limit"`

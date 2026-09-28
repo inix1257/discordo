@@ -14,6 +14,18 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
+func TestMIMETypesHas(t *testing.T) {
+	var cfg struct {
+		Allowed MIMETypes `toml:"allowed_mime_types"`
+	}
+	if err := toml.Unmarshal([]byte("allowed_mime_types = [\"image/*\", \"text/plain\"]"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Allowed.Has("image/png") || !cfg.Allowed.Has("text/plain") || cfg.Allowed.Has("application/pdf") {
+		t.Fatalf("got %#v", []string(cfg.Allowed))
+	}
+}
+
 func TestDefaultPath(t *testing.T) {
 	t.Run("user config dir fallback", func(t *testing.T) {
 		t.Setenv("AppData", "")

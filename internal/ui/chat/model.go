@@ -394,6 +394,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return focusCmd
 	case deleteMessageMsg:
 		return m.messagesList.deleteMessageRequest(discord.Message(msg))
+	case attachmentActionMsg:
+		return msg.Action
 	case channelspicker.SelectedMsg:
 		return m.navigateToChannel(msg.ChannelID)
 	case channelspicker.CancelMsg:
@@ -404,7 +406,7 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 	case contextmenu.CancelMsg:
 		return m.closeMessageMenu()
 	case attachmentspicker.SelectedMsg:
-		return tview.Sequence(msg.Open, m.closeAttachmentsPicker())
+		return tview.Sequence(msg.Action, m.closeAttachmentsPicker())
 	case attachmentspicker.CancelMsg:
 		return m.closeAttachmentsPicker()
 	case QuitMsg:

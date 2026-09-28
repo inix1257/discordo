@@ -2,8 +2,11 @@ package chat
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,6 +36,7 @@ import (
 	"github.com/ayn2op/tview/list"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"
+	"github.com/ncruces/zenity"
 	"github.com/rivo/uniseg"
 	"github.com/skratchdot/open-golang/open"
 	"github.com/yuin/goldmark/ast"
@@ -931,6 +935,12 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 			return ml.yankURL()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Open.Keybind):
 			return ml.open()
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.OpenInBrowser.Keybind):
+			return ml.openInBrowser()
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.OpenWithApp.Keybind):
+			return ml.openWith(ml.openAttachment)
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Download.Keybind):
+			return ml.download()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
 			return ml.reply(false)
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.ReplyMention.Keybind):
@@ -1157,14 +1167,14 @@ func extraCopyURLs(msg discord.Message) []string {
 }
 
 const (
-	messageMenuCopy          = "Copy"
-	messageMenuCopyID        = "Copy ID"
-	messageMenuMention       = "Mention"
-	messageMenuReply         = "Reply"
-	messageMenuReplyMention  = "Reply (mention)"
-	messageMenuEdit          = "Edit"
-	messageMenuDelete        = "Delete"
-	messageMenuOpen          = "Open"
+	messageMenuCopy         = "Copy"
+	messageMenuCopyID       = "Copy ID"
+	messageMenuMention      = "Mention"
+	messageMenuReply        = "Reply"
+	messageMenuReplyMention = "Reply (mention)"
+	messageMenuEdit         = "Edit"
+	messageMenuDelete       = "Delete"
+	messageMenuOpen         = "Open"
 )
 
 func (ml *messagesList) messageMenuItems() []string {
@@ -1234,6 +1244,19 @@ func (ml *messagesList) mentionAuthor() tview.Cmd {
 }
 
 func (ml *messagesList) open() tview.Cmd {
+	return ml.openWith(func(attachment discord.Attachment) tview.Cmd {
+		if strings.HasPrefix(attachment.ContentType, "image/") {
+			return ml.openAttachment(attachment)
+		}
+		return openURL(attachment.URL)
+	})
+}
+
+func (ml *messagesList) openInBrowser() tview.Cmd {
+	return ml.openWith(func(attachment discord.Attachment) tview.Cmd { return openURL(attachment.URL) })
+}
+
+func (ml *messagesList) openWith(openAttachment func(discord.Attachment) tview.Cmd) tview.Cmd {
 	selectedMessage, ok := ml.selectedMessage()
 	if !ok {
 		return nil
@@ -1244,16 +1267,29 @@ func (ml *messagesList) open() tview.Cmd {
 	case total == 0:
 		return nil
 	case total > 1:
-		return ml.showAttachmentsList(urls, selectedMessage.Attachments)
+		return ml.showAttachmentsList(urls, selectedMessage.Attachments, openAttachment)
 	case len(urls) == 1:
 		return openURL(urls[0])
 	}
 
-	attachment := selectedMessage.Attachments[0]
-	if strings.HasPrefix(attachment.ContentType, "image/") {
-		return openAttachment(attachment)
+	return openAttachment(selectedMessage.Attachments[0])
+}
+
+func (ml *messagesList) download() tview.Cmd {
+	selectedMessage, ok := ml.selectedMessage()
+	if !ok || len(selectedMessage.Attachments) == 0 {
+		return nil
 	}
-	return openURL(attachment.URL)
+	if len(selectedMessage.Attachments) == 1 {
+		attachment := selectedMessage.Attachments[0]
+		return ml.confirmAttachment(attachment, saveAttachment(attachment))
+	}
+
+	items := make([]attachmentspicker.Item, len(selectedMessage.Attachments))
+	for i, attachment := range selectedMessage.Attachments {
+		items[i] = attachmentspicker.Item{Label: attachment.Filename, Action: ml.confirmAttachment(attachment, saveAttachment(attachment))}
+	}
+	return ml.showAttachmentsPicker(items)
 }
 
 func extractURLs(content string) []string {
@@ -1320,26 +1356,18 @@ func messageURLs(msg discord.Message) []string {
 	return urls
 }
 
-func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord.Attachment) tview.Cmd {
+func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord.Attachment, openAttachment func(discord.Attachment) tview.Cmd) tview.Cmd {
 	var items []attachmentspicker.Item
-	for _, a := range attachments {
-		attachment := a
-		open := openURL(attachment.URL)
-		if strings.HasPrefix(attachment.ContentType, "image/") {
-			open = openAttachment(attachment)
-		}
-		items = append(items, attachmentspicker.Item{
-			Label: attachment.Filename,
-			Open:  open,
-		})
+	for _, attachment := range attachments {
+		items = append(items, attachmentspicker.Item{Label: attachment.Filename, Action: openAttachment(attachment)})
 	}
-	for _, u := range urls {
-		url := u
-		items = append(items, attachmentspicker.Item{
-			Label: url,
-			Open:  openURL(url),
-		})
+	for _, url := range urls {
+		items = append(items, attachmentspicker.Item{Label: url, Action: openURL(url)})
 	}
+	return ml.showAttachmentsPicker(items)
+}
+
+func (ml *messagesList) showAttachmentsPicker(items []attachmentspicker.Item) tview.Cmd {
 	ml.attachmentsPicker.SetItems(items)
 
 	ml.chat.
@@ -1354,52 +1382,97 @@ func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord
 	return tview.SetFocus(ml.attachmentsPicker)
 }
 
-func openAttachment(attachment discord.Attachment) tview.Cmd {
+func (ml *messagesList) openAttachment(attachment discord.Attachment) tview.Cmd {
+	return ml.confirmAttachment(attachment, openDownloadedAttachment(attachment))
+}
+
+func (ml *messagesList) confirmAttachment(attachment discord.Attachment, action tview.Cmd) tview.Cmd {
+	if !ml.cfg.AllowedMIMETypes.Has(attachment.ContentType) {
+		return ui.ShowModal(
+			"This attachment type is not allowed and may be unsafe. Continue anyway?",
+			ui.ModalButton{Label: "No"},
+			ui.ModalButton{Label: "Yes", Result: attachmentActionMsg{action}},
+		)
+	}
+	return action
+}
+
+func openDownloadedAttachment(attachment discord.Attachment) tview.Cmd {
 	return func() tview.Msg {
-		resp, err := http.Get(attachment.URL)
-		if err != nil {
-			slog.Error("failed to fetch the attachment", "err", err, "url", attachment.URL)
-			return nil
-		}
-		defer resp.Body.Close()
-
-		path := filepath.Join(consts.CacheDir(), "attachments")
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			slog.Error("failed to create attachments dir", "err", err, "path", path)
-			return nil
+		extension := filepath.Ext(attachment.Filename)
+		if extension == "" {
+			mediaType, _, _ := mime.ParseMediaType(attachment.ContentType)
+			if extensions, _ := mime.ExtensionsByType(mediaType); len(extensions) != 0 {
+				extension = extensions[0]
+			}
 		}
 
-		root, err := os.OpenRoot(path)
-		if err != nil {
-			slog.Error("failed to open attachments dir", "err", err, "path", path)
-			return nil
+		dir := filepath.Join(consts.CacheDir(), "attachments")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return attachmentErr("create attachments directory", err)
 		}
-		defer root.Close()
 
-		file, err := root.Create(attachment.Filename)
+		file, err := os.CreateTemp(dir, "attachment-*"+extension)
 		if err != nil {
-			slog.Error("failed to create attachment file", "err", err, "filename", attachment.Filename)
-			return nil
+			return attachmentErr("create attachment file", err)
 		}
 		defer file.Close()
 
-		if _, err := io.Copy(file, resp.Body); err != nil {
-			slog.Error("failed to copy attachment to file", "err", err)
-			return nil
-		}
-
-		if err := open.Start(file.Name()); err != nil {
-			slog.Error("failed to open attachment file", "err", err, "path", file.Name())
-			return nil
+		path := file.Name()
+		if err := downloadAttachment(attachment, path); err != nil {
+			os.Remove(path)
+			return attachmentErr("download attachment", err)
+		} else if err := open.Start(path); err != nil {
+			return attachmentErr("open attachment file", err)
 		}
 		return nil
 	}
 }
 
+func attachmentErr(what string, err error) tview.Msg {
+	slog.Error("failed to "+what, "err", err)
+	return ui.ModalMsg{Text: "Failed to " + what + ": " + err.Error(), Buttons: []ui.ModalButton{{Label: "OK"}}}
+}
+
+func saveAttachment(attachment discord.Attachment) tview.Cmd {
+	return func() tview.Msg {
+		destination, err := zenity.SelectFileSave(zenity.Filename(filepath.Base(attachment.Filename)), zenity.ConfirmOverwrite())
+		if errors.Is(err, zenity.ErrCanceled) {
+			return nil
+		}
+		if err != nil {
+			return attachmentErr("select attachment destination", err)
+		}
+
+		if err := downloadAttachment(attachment, destination); err != nil {
+			return attachmentErr("download attachment", err)
+		}
+		return nil
+	}
+}
+
+func downloadAttachment(attachment discord.Attachment, destination string) error {
+	resp, err := http.Get(attachment.URL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected HTTP status: %s", resp.Status)
+	}
+	file, err := os.Create(destination)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = io.Copy(file, resp.Body)
+	return err
+}
+
 func openURL(url string) tview.Cmd {
 	return func() tview.Msg {
 		if err := open.Start(url); err != nil {
-			slog.Error("failed to open URL", "err", err, "url", url)
+			return attachmentErr("open URL", err)
 		}
 		return nil
 	}
@@ -1562,9 +1635,11 @@ func (ml *messagesList) FullHelp() [][]keybind.Keybind {
 	canEdit := false
 	canDelete := false
 	canOpen := false
+	canDownload := false
 	if selectedMessage, ok := ml.selectedMessage(); ok {
 		canSelectReply = selectedMessage.ReferencedMessage != nil
 		canOpen = len(messageURLs(*selectedMessage)) != 0 || len(selectedMessage.Attachments) != 0
+		canDownload = len(selectedMessage.Attachments) != 0
 
 		canEdit = ml.chat.isMe(selectedMessage.Author.ID)
 		canReply = !canEdit
@@ -1588,7 +1663,10 @@ func (ml *messagesList) FullHelp() [][]keybind.Keybind {
 		manage = append(manage, cfg.DeleteConfirm.Keybind, cfg.Delete.Keybind)
 	}
 	if canOpen {
-		manage = append(manage, cfg.Open.Keybind)
+		manage = append(manage, cfg.Open.Keybind, cfg.OpenInBrowser.Keybind)
+	}
+	if canDownload {
+		manage = append(manage, cfg.OpenWithApp.Keybind, cfg.Download.Keybind)
 	}
 
 	return [][]keybind.Keybind{
