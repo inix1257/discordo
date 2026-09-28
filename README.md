@@ -1,3 +1,52 @@
+# About this fork
+
+This is a personal fork of [ayn2op/discordo](https://github.com/ayn2op/discordo). It keeps up with upstream and adds the following changes on top.
+
+**Sidebar**
+
+- Hides muted channels, voice and stage channels, and threads you have not joined.
+- Read channels use a readable gray instead of dim text.
+- Flatter tree indentation, and the cursor no longer jumps to the center.
+- DMs that receive a new message move to the top.
+- A mouse button on the border collapses and expands the guilds pane.
+- Picking a channel or clicking an item keeps the current scroll position.
+
+**Messages**
+
+- Authors show by display name instead of server nickname.
+- Timestamps sit after the author and appear once per author per minute.
+- Reactions render as bracketed chips and stickers as green `(sticker)` labels.
+- File links and attachments show the file name instead of the full URL.
+- Scrolling to the top with the mouse wheel loads older messages.
+- Clicking a message keeps the list scroll position.
+- A right-click menu offers copy, reply, edit, delete, and open.
+- Copying a message includes the extra URLs from attachments and embeds.
+
+**Attachments**
+
+- `o` opens images locally and the rest in the browser, `O` always uses the browser, and `ctrl+o` opens with the associated app.
+- `w` downloads an attachment through a save dialog.
+- `allowed_mime_types` in the config lists types that open without a confirmation prompt.
+
+**Composer**
+
+- `up` in an empty composer edits your last message.
+- `shift+tab` toggles whether a reply mentions its author.
+- Pasting an image works in Windows Terminal, including screenshots copied only as PNG.
+
+**Other**
+
+- The keybind help bar at the bottom is removed.
+- Quitting no longer waits for the session to close.
+
+To build this fork:
+
+```bash
+git clone https://github.com/inix1257/discordo
+cd discordo
+go build .
+```
+
 # Disclaimer
 
 > [!IMPORTANT]
