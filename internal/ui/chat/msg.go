@@ -60,6 +60,12 @@ func logout() tview.Cmd {
 
 type QuitMsg struct{}
 
+type toggleGuildsTreeMsg struct{}
+
+func toggleGuildsTree() tview.Cmd {
+	return func() tview.Msg { return toggleGuildsTreeMsg{} }
+}
+
 type FocusedMsg struct{ Model tview.Model }
 
 func focused(model tview.Model) tview.Cmd { return func() tview.Msg { return FocusedMsg{model} } }

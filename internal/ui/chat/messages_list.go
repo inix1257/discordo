@@ -119,6 +119,13 @@ func (ml *messagesList) setTitle(channel discord.Channel) {
 	ml.SetTitle(title)
 }
 
+func (ml *messagesList) View(screen tcell.Screen) {
+	ml.Model.View(screen)
+	if ml.chat.guildsCollapsed && ml.cfg.Mouse {
+		drawCollapsedGuildsToggle(screen, ml.Box, ml.cfg, ml.HasFocus())
+	}
+}
+
 func (ml *messagesList) setMessages(messages []discord.Message) {
 	ml.messages = slices.Clone(messages)
 	slices.Reverse(ml.messages)
@@ -900,10 +907,13 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 			return ml.confirmDelete()
 		}
 	case tview.MouseMsg:
+		x, y := msg.Position()
+		if ml.chat.guildsCollapsed && msg.Action == tview.MouseLeftClick && hitGuildsToggle(ml.Box, true, x, y) {
+			return toggleGuildsTree()
+		}
 		if msg.Action == tview.MouseRightClick {
 			ml.Model.Update(tview.MouseMsg{EventMouse: msg.EventMouse, Action: tview.MouseLeftClick})
 			ml.onRowCursorChanged(ml.Model.Cursor())
-			x, y := msg.Position()
 			return ml.showMessageMenu(x, y)
 		}
 	case olderMessagesLoadedMsg:

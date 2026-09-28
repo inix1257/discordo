@@ -66,6 +66,8 @@ type Model struct {
 	typers   map[discord.UserID]*time.Timer
 
 	cfg *config.Config
+
+	guildsCollapsed bool
 }
 
 func NewModel(cfg *config.Config, token string) *Model {
@@ -144,10 +146,7 @@ func (m *Model) buildLayout() {
 		SetDirection(flex.DirectionRow).
 		AddItem(m.messagesList, 0, 1, false).
 		AddItem(m.composer, 3, 1, false)
-	// The guilds tree is always focused first at start-up.
-	m.mainFlex.
-		AddItem(m.guildsTree, 0, m.cfg.Sidebar.WidthPercent, true).
-		AddItem(m.rightFlex, 0, 100-m.cfg.Sidebar.WidthPercent, false)
+	m.layoutMainFlex()
 
 	m.AddLayer(m.mainFlex, layers.WithName(flexLayerName), layers.WithResize(true), layers.WithVisible(true))
 	m.AddLayer(
@@ -236,21 +235,31 @@ func (m *Model) navigateToChannel(channelID discord.ChannelID) tview.Cmd {
 	return tview.Sequence(focus, m.guildsTree.loadChannel(*channel))
 }
 
-func (m *Model) toggleGuildsTree() tview.Cmd {
-	if m.mainFlex.GetItemCount() == 2 {
-		m.mainFlex.RemoveItem(m.guildsTree)
-		if m.guildsTree.HasFocus() {
-			return tview.SetFocus(m.mainFlex)
-		}
-	} else {
-		m.buildLayout()
-		return tview.SetFocus(m.guildsTree)
+func (m *Model) layoutMainFlex() {
+	m.mainFlex.Clear()
+	if m.guildsCollapsed {
+		m.mainFlex.AddItem(m.rightFlex, 0, 1, false)
+		return
 	}
-	return nil
+	m.mainFlex.
+		AddItem(m.guildsTree, 0, m.cfg.Sidebar.WidthPercent, true).
+		AddItem(m.rightFlex, 0, 100-m.cfg.Sidebar.WidthPercent, false)
+}
+
+func (m *Model) toggleGuildsTree() tview.Cmd {
+	m.guildsCollapsed = !m.guildsCollapsed
+	m.layoutMainFlex()
+	if m.guildsCollapsed {
+		if m.guildsTree.HasFocus() {
+			return tview.SetFocus(m.messagesList)
+		}
+		return nil
+	}
+	return tview.SetFocus(m.guildsTree)
 }
 
 func (m *Model) focusGuildsTree() tview.Cmd {
-	if m.mainFlex.GetItemCount() == 2 {
+	if !m.guildsCollapsed {
 		return tview.SetFocus(m.guildsTree)
 	}
 	return nil
@@ -400,6 +409,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return m.closeAttachmentsPicker()
 	case QuitMsg:
 		return closeState(m.state)
+	case toggleGuildsTreeMsg:
+		return m.toggleGuildsTree()
 	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, m.cfg.Keybinds.FocusGuildsTree.Keybind):

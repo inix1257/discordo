@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/ayn2op/arikawa/v3/discord"
 	"github.com/ayn2op/arikawa/v3/gateway"
@@ -68,6 +69,25 @@ func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
 	})
 
 	return gt
+}
+
+func (gt *guildsTree) View(screen tcell.Screen) {
+	gt.Model.View(screen)
+	if gt.cfg.Mouse {
+		drawExpandedGuildsToggle(screen, gt.Box, gt.cfg, gt.HasFocus())
+	}
+}
+
+func (gt *guildsTree) moveDMToFront(channelID discord.ChannelID) {
+	if gt.dmRootNode == nil {
+		return
+	}
+	node := gt.channelNodeByID[channelID]
+	children := gt.dmRootNode.Children()
+	if index := slices.Index(children, node); index > 0 {
+		copy(children[1:index+1], children[:index])
+		children[0] = node
+	}
 }
 
 func (gt *guildsTree) resetNodeIndex() {
@@ -354,6 +374,11 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		return tview.Sequence(gt.Model.Update(msg), focused(gt))
 	case tree.SelectedMsg:
 		return gt.onSelected(msg.Node)
+	case tview.MouseMsg:
+		x, y := msg.Position()
+		if msg.Action == tview.MouseLeftClick && hitGuildsToggle(gt.Box, false, x, y) {
+			return toggleGuildsTree()
+		}
 	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.CollapseAll.Keybind):
