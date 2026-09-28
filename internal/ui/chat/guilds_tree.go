@@ -56,6 +56,7 @@ func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
 		}).
 		SetGraphics(cfg.Theme.GuildsTree.Graphics).
 		SetGraphicsColor(tcell.GetColor(cfg.Theme.GuildsTree.GraphicsColor)).
+		SetCenterCursor(false).
 		SetTitle("Guilds")
 	gt.SetKeybinds(tree.Keybinds{
 		Up:           cfg.Keybinds.GuildsTree.SelectUp.Keybind,

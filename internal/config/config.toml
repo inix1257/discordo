@@ -73,18 +73,18 @@ receive = true
 width_percent = 20
 
 [sidebar.markers]
-expanded = "▾ "
-collapsed = "▸ "
+expanded = "▾"
+collapsed = "▸"
 leaf = ""
 
-# Indentation for different item types.
+# Indentation for different item types. 0 keeps only the tree junction.
 [sidebar.indents]
-dm = 2
-group_dm = 1
-guild = 2
-category = 1
-channel = 2
-forum = 2
+dm = 0
+group_dm = 0
+guild = 0
+category = 0
+channel = 0
+forum = 0
 
 [icons]
 guild_category = ""
