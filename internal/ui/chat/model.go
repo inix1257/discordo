@@ -486,11 +486,7 @@ func (m *Model) updateFooter() {
 					continue
 				}
 
-				if member.Nick != "" {
-					name = member.Nick
-				} else {
-					name = member.User.DisplayOrUsername()
-				}
+				name = member.User.DisplayOrUsername()
 			} else {
 				for _, recipient := range selectedChannel.DMRecipients {
 					if recipient.ID == userID {

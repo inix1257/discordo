@@ -724,10 +724,6 @@ func (c *composer) addMentionMember(gID discord.GuildID, m *discord.Member) bool
 	}
 
 	name := m.User.DisplayOrUsername()
-	if m.Nick != "" {
-		name = m.Nick
-	}
-
 	style := tcell.StyleDefault
 
 	// This avoids a slower member color lookup path.
