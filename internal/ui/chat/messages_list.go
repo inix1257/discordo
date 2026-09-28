@@ -146,6 +146,9 @@ func (ml *messagesList) setMessage(index int, message discord.Message) {
 
 	ml.messages[index] = message
 	delete(ml.itemByID, message.ID)
+	if index+1 < len(ml.messages) {
+		delete(ml.itemByID, ml.messages[index+1].ID)
+	}
 	ml.rebuildRows()
 }
 
@@ -155,6 +158,9 @@ func (ml *messagesList) deleteMessage(index int) {
 	}
 
 	delete(ml.itemByID, ml.messages[index].ID)
+	if index+1 < len(ml.messages) {
+		delete(ml.itemByID, ml.messages[index+1].ID)
+	}
 	ml.messages = slices.Delete(ml.messages, index, index+1)
 	ml.rebuildRows()
 }
@@ -255,6 +261,29 @@ func sameLocalDate(a discord.Timestamp, b discord.Timestamp) bool {
 	return ta.Year() == tb.Year() && ta.YearDay() == tb.YearDay()
 }
 
+func sameLocalMinute(a discord.Timestamp, b discord.Timestamp) bool {
+	ta := a.Time().In(time.Local)
+	tb := b.Time().In(time.Local)
+	return ta.Year() == tb.Year() && ta.YearDay() == tb.YearDay() && ta.Hour() == tb.Hour() && ta.Minute() == tb.Minute()
+}
+
+func (ml *messagesList) showTimestamp(message discord.Message) bool {
+	for i, current := range ml.messages {
+		if current.ID != message.ID {
+			continue
+		}
+		if i == 0 {
+			return true
+		}
+		prev := ml.messages[i-1]
+		if prev.Author.ID == message.Author.ID {
+			return false
+		}
+		return !sameLocalMinute(prev.Timestamp, message.Timestamp)
+	}
+	return true
+}
+
 // Cursor returns the selected message index, skipping separator rows.
 func (ml *messagesList) Cursor() int {
 	rowIndex := ml.Model.Cursor()
@@ -329,16 +358,16 @@ func (ml *messagesList) writeMessage(builder *tview.LineBuilder, message discord
 			ml.drawDefaultMessage(builder, message, baseStyle)
 		}
 	case discord.GuildMemberJoinMessage:
-		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 		ml.drawAuthor(builder, message, baseStyle)
 		builder.Write("joined the server.", baseStyle)
+		ml.drawOwnTimestamp(builder, message, baseStyle)
 	case discord.InlinedReplyMessage:
 		ml.drawReplyMessage(builder, message, baseStyle)
 	case discord.ChannelPinnedMessage:
 		ml.drawPinnedMessage(builder, message, baseStyle)
 	default:
-		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 		ml.drawAuthor(builder, message, baseStyle)
+		ml.drawOwnTimestamp(builder, message, baseStyle)
 	}
 	ml.drawReactions(builder, message.Reactions, baseStyle)
 }
@@ -372,7 +401,13 @@ func (ml *messagesList) formatTimestamp(ts discord.Timestamp) string {
 
 func (ml *messagesList) drawTimestamps(builder *tview.LineBuilder, ts discord.Timestamp, baseStyle tcell.Style) {
 	dimStyle := baseStyle.Dim(true)
-	builder.Write(ml.formatTimestamp(ts)+" ", dimStyle)
+	builder.Write(" "+ml.formatTimestamp(ts), dimStyle)
+}
+
+func (ml *messagesList) drawOwnTimestamp(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+	if ml.showTimestamp(message) {
+		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
+	}
 }
 
 func (ml *messagesList) drawAuthor(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
@@ -422,7 +457,7 @@ func (ml *messagesList) drawContent(builder *tview.LineBuilder, message discord.
 		}
 
 		if startsWithCodeBlock {
-			// Keep code blocks visually separate from "timestamp + author".
+			// Keep code blocks visually separate from the author line.
 			builder.NewLine()
 			for len(lines) > 0 && len(lines[0]) == 0 {
 				lines = lines[1:]
@@ -476,16 +511,15 @@ func (ml *messagesList) drawSnapshotContent(builder *tview.LineBuilder, parent d
 }
 
 func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
-	if ml.cfg.Timestamps.Enabled {
-		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
-	}
-
 	ml.drawAuthor(builder, message, baseStyle)
 	contentRoot, contentSource := ml.drawContent(builder, message, baseStyle)
 
 	if message.EditedTimestamp.IsValid() {
 		dimStyle := baseStyle.Dim(true)
 		builder.Write(" (edited)", dimStyle)
+	}
+	if ml.cfg.Timestamps.Enabled {
+		ml.drawOwnTimestamp(builder, message, baseStyle)
 	}
 
 	ml.drawEmbeds(builder, message, baseStyle, contentRoot, contentSource)
@@ -819,11 +853,11 @@ func isMarkdownEscapable(c byte) bool {
 
 func (ml *messagesList) drawForwardedMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
 	dimStyle := baseStyle.Dim(true)
-	ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 	ml.drawAuthor(builder, message, baseStyle)
 	builder.Write(ml.cfg.Theme.MessagesList.ForwardedIndicator+" ", dimStyle)
 	ml.drawSnapshotContent(builder, message, message.MessageSnapshots[0].Message, baseStyle)
-	builder.Write(" ("+ml.formatTimestamp(message.MessageSnapshots[0].Message.Timestamp)+") ", dimStyle)
+	builder.Write(" ("+ml.formatTimestamp(message.MessageSnapshots[0].Message.Timestamp)+")", dimStyle)
+	ml.drawOwnTimestamp(builder, message, baseStyle)
 }
 
 func (ml *messagesList) drawReplyMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
