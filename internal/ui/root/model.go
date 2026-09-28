@@ -13,7 +13,6 @@ import (
 	"github.com/ayn2op/discordo/internal/ui/login/token"
 	"github.com/ayn2op/tview"
 	"github.com/ayn2op/tview/flex"
-	"github.com/ayn2op/tview/help"
 	"github.com/ayn2op/tview/keybind"
 	"github.com/ayn2op/tview/layers"
 	"github.com/ayn2op/tview/modal"
@@ -29,9 +28,8 @@ const (
 type Model struct {
 	*layers.Layers
 
-	rootFlex *flex.Model // inner + help
+	rootFlex *flex.Model
 	inner    tview.Model
-	help     *help.Model
 
 	modalRequest       *ui.ModalMsg
 	modalDialog        *modal.Model
@@ -48,27 +46,8 @@ func NewModel(cfg *config.Config) *Model {
 	}
 	m.SetBackgroundLayerStyle(cfg.Theme.Dialog.BackgroundStyle.Style)
 	m.rootFlex.SetDirection(flex.DirectionRow)
-	if cfg.Help.Enabled {
-		m.help = newHelpModel(cfg, m)
-	}
 	m.buildLayout()
 	return m
-}
-
-func newHelpModel(cfg *config.Config, keyMap help.KeyMap) *help.Model {
-	styles := help.DefaultStyles()
-	styles.ShortKey = cfg.Theme.Help.ShortKeyStyle.Style
-	styles.ShortDesc = cfg.Theme.Help.ShortDescStyle.Style
-	styles.FullKey = cfg.Theme.Help.FullKeyStyle.Style
-	styles.FullDesc = cfg.Theme.Help.FullDescStyle.Style
-
-	h := help.NewModel()
-	h.SetStyles(styles).
-		SetKeyMap(keyMap).
-		SetCompactModifiers(cfg.Help.CompactModifiers).
-		SetShortSeparator(cfg.Help.Separator)
-	h.SetBorderPadding(0, 0, cfg.Help.Padding[0], cfg.Help.Padding[1])
-	return h
 }
 
 func (m *Model) showLogin() tview.Cmd {
@@ -92,9 +71,6 @@ func (m *Model) buildLayout() {
 	m.rootFlex.Clear()
 	if m.inner != nil {
 		m.rootFlex.AddItem(m.inner, 0, 1, true)
-	}
-	if m.help != nil {
-		m.rootFlex.AddItem(m.help, m.helpHeight(), 0, false)
 	}
 	m.AddLayer(m.rootFlex, layers.WithName(contentLayerName), layers.WithResize(true), layers.WithVisible(true))
 }
@@ -148,15 +124,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			return m.Layers.Update(msg)
 		}
 		switch {
-		case keybind.Matches(msg, m.cfg.Keybinds.ToggleHelp.Keybind):
-			m.toggleHelp()
-			return nil
-		case keybind.Matches(msg, m.cfg.Keybinds.ToggleFullHelp.Keybind):
-			if m.help == nil {
-				return nil
-			}
-			m.help.SetShowAll(!m.help.ShowAll())
-			m.rootFlex.ResizeItem(m.help, m.helpHeight(), 0)
+		case keybind.Matches(msg, m.cfg.Keybinds.ToggleHelp.Keybind),
+			keybind.Matches(msg, m.cfg.Keybinds.ToggleFullHelp.Keybind):
 			return nil
 		case keybind.Matches(msg, m.cfg.Keybinds.Suspend.Keybind):
 			return suspend()
@@ -177,19 +146,6 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return m.inner.Update(msg)
 	}
 	return nil
-}
-
-func (m *Model) toggleHelp() {
-	if m.help == nil {
-		return
-	}
-
-	count := m.rootFlex.GetItemCount()
-	if count > 0 && m.rootFlex.GetItem(count-1) == m.help {
-		m.rootFlex.RemoveItem(m.help)
-	} else {
-		m.rootFlex.AddItem(m.help, m.helpHeight(), 0, false)
-	}
 }
 
 func (m *Model) showModal(request ui.ModalMsg) tview.Cmd {
@@ -253,12 +209,4 @@ func (m *Model) finishModal(done modal.DoneMsg) tview.Cmd {
 		return focus
 	}
 	return tview.Sequence(focus, func() tview.Msg { return result })
-}
-
-func (m *Model) helpHeight() int {
-	height := 1
-	if m.help.ShowAll() {
-		height = max(len(m.help.FullHelpLines(m.FullHelp(), 0)), 1)
-	}
-	return height
 }
