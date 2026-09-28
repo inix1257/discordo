@@ -1,8 +1,11 @@
 package markdown
 
 import (
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -34,6 +37,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 	builder := tview.NewLineBuilder()
 	styleStack := []tcell.Style{base}
 	linkDepth := 0
+	linkDest := ""
 
 	currentStyle := func() tcell.Style {
 		return styleStack[len(styleStack)-1]
@@ -60,7 +64,13 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 		case *ast.Text:
 			if entering {
-				builder.Write(string(node.Segment.Value(source)), currentStyle())
+				text := string(node.Segment.Value(source))
+				if linkDest != "" && text == linkDest {
+					if name, ok := FileLinkName(linkDest); ok {
+						text = name
+					}
+				}
+				builder.Write(text, currentStyle())
 				switch {
 				case node.HardLineBreak():
 					builder.NewLine()
@@ -76,16 +86,22 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 		case *ast.AutoLink:
 			if entering {
-				url := string(node.URL(source))
-				style := tview.MergeStyle(currentStyle(), theme.URLStyle.Style).Url(url)
-				builder.Write(url, style)
+				raw := string(node.URL(source))
+				shown := raw
+				if name, ok := FileLinkName(raw); ok {
+					shown = name
+				}
+				style := tview.MergeStyle(currentStyle(), theme.URLStyle.Style).Url(raw)
+				builder.Write(shown, style)
 			}
 		case *ast.Link:
 			if entering {
-				url := string(node.Destination)
+				raw := string(node.Destination)
+				linkDest = raw
 				linkDepth++
-				pushStyle(tview.MergeStyle(currentStyle(), theme.URLStyle.Style).Url(url))
+				pushStyle(tview.MergeStyle(currentStyle(), theme.URLStyle.Style).Url(raw))
 			} else {
+				linkDest = ""
 				if linkDepth > 0 {
 					linkDepth--
 				}
@@ -142,6 +158,31 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 	})
 
 	return builder.Finish()
+}
+
+// FileLinkName is the URL's filename when the path looks like a file.
+func FileLinkName(raw string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" || parsed.Path == "" {
+		return "", false
+	}
+
+	base := path.Base(strings.TrimRight(parsed.Path, "/"))
+	name, err := url.PathUnescape(base)
+	if err != nil || name == "" || name == "." || name == "/" {
+		return "", false
+	}
+
+	ext := path.Ext(name)
+	if len(ext) < 2 || len(ext) > 8 || name == ext {
+		return "", false
+	}
+	for _, r := range ext[1:] {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return "", false
+		}
+	}
+	return name, true
 }
 
 func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []byte, node *ast.FencedCodeBlock, base tcell.Style) {

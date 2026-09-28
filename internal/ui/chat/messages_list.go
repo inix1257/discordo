@@ -527,13 +527,11 @@ func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message d
 	attachmentStyle := tview.MergeStyle(baseStyle, ml.cfg.Theme.MessagesList.AttachmentStyle.Style)
 	for _, a := range message.Attachments {
 		builder.NewLine()
+		style := attachmentStyle
 		if ml.cfg.ShowAttachmentLinks {
-			builder.Write(a.Filename+":", attachmentStyle)
-			builder.NewLine()
-			builder.Write(a.URL, attachmentStyle.Url(a.URL))
-		} else {
-			builder.Write(a.Filename, attachmentStyle)
+			style = attachmentStyle.Url(a.URL)
 		}
+		builder.Write(a.Filename, style)
 	}
 
 	ml.drawStickers(builder, message, baseStyle)
@@ -809,6 +807,10 @@ func embedLines(embed discord.Embed, contentURLs map[string]struct{}) []embedLin
 }
 
 func linkDisplayText(raw string) string {
+	if name, ok := markdown.FileLinkName(raw); ok {
+		return name
+	}
+
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" {
 		return raw
