@@ -88,12 +88,14 @@ type MessagesListKeybinds struct {
 }
 
 type ComposerKeybinds struct {
-	Paste       Keybind `toml:"paste"`
-	Send        Keybind `toml:"send"`
-	Newline     Keybind `toml:"newline"`
-	Cancel      Keybind `toml:"cancel"`
-	TabComplete Keybind `toml:"tab_complete"`
-	Undo        Keybind `toml:"undo"`
+	EditLast           Keybind `toml:"edit_last"`
+	Paste              Keybind `toml:"paste"`
+	Send               Keybind `toml:"send"`
+	ToggleReplyMention Keybind `toml:"toggle_reply_mention"`
+	Newline            Keybind `toml:"newline"`
+	Cancel             Keybind `toml:"cancel"`
+	TabComplete        Keybind `toml:"tab_complete"`
+	Undo               Keybind `toml:"undo"`
 
 	OpenEditor     Keybind `toml:"open_editor"`
 	OpenFilePicker Keybind `toml:"open_file_picker"`
@@ -179,14 +181,16 @@ func defaultMessagesListKeybinds() MessagesListKeybinds {
 
 func defaultComposerKeybinds() ComposerKeybinds {
 	return ComposerKeybinds{
-		Paste:          desc("paste"),
-		Send:           desc("send"),
-		Newline:        desc("nl"),
-		Cancel:         desc("cancel"),
-		TabComplete:    desc("complete"),
-		Undo:           desc("undo"),
-		OpenEditor:     desc("editor"),
-		OpenFilePicker: desc("attach"),
+		EditLast:           desc("edit last"),
+		Paste:              desc("paste"),
+		Send:               desc("send"),
+		Newline:            desc("nl"),
+		Cancel:             desc("cancel"),
+		TabComplete:        desc("complete"),
+		ToggleReplyMention: desc("toggle @"),
+		Undo:               desc("undo"),
+		OpenEditor:         desc("editor"),
+		OpenFilePicker:     desc("attach"),
 	}
 }
 

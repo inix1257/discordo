@@ -172,6 +172,9 @@ yank_id = "i"
 
 # Only while typing a message
 [keybinds.composer]
+# Edit your newest editable message loaded in the current channel.
+# Only when the composer is empty, with no reply, attachments, or edit in progress.
+edit_last = "up"
 # Paste from clipboard (supports both text and images)
 paste = "ctrl+v"
 send = "enter"
@@ -181,6 +184,8 @@ newline = "shift+enter"
 cancel = "esc"
 # Complete usernames when mentioning
 tab_complete = "tab"
+# Toggle whether a reply mentions its author.
+toggle_reply_mention = "shift+tab"
 undo = "ctrl+u"
 
 open_editor = "ctrl+e"

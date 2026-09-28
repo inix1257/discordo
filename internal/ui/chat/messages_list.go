@@ -1427,7 +1427,11 @@ func (ml *messagesList) reply(mention bool) tview.Cmd {
 	}
 
 	ml.chat.composer.sendMessageData = data
-	ml.chat.composer.SetTitle(title + name)
+	hint := ""
+	if keys := ml.cfg.Keybinds.Composer.ToggleReplyMention.Keys(); len(keys) > 0 {
+		hint = " (" + keys[0] + " to toggle @)"
+	}
+	ml.chat.composer.SetTitle(title + name + hint)
 	return tview.SetFocus(ml.chat.composer)
 }
 

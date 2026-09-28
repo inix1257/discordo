@@ -183,6 +183,8 @@ func (c *composer) Update(msg tview.Msg) tview.Cmd {
 
 	case tview.KeyMsg:
 		switch {
+		case keybind.Matches(msg, c.cfg.Keybinds.Composer.EditLast.Keybind) && c.canEditLastMessage():
+			return c.editLastMessage()
 		case keybind.Matches(msg, c.cfg.Keybinds.Composer.Paste.Keybind):
 			return tview.Sequence(pasteImage(), c.forwardToTextArea(tcell.NewEventKey(tcell.KeyCtrlV, "", tcell.ModNone)))
 		case keybind.Matches(msg, c.cfg.Keybinds.Composer.Newline.Keybind):
@@ -207,6 +209,9 @@ func (c *composer) Update(msg tview.Msg) tview.Cmd {
 				return c.tabComplete()
 			}
 			return c.forwardToTextArea(msg)
+		case keybind.Matches(msg, c.cfg.Keybinds.Composer.ToggleReplyMention.Keybind) && c.sendMessageData.Reference != nil:
+			c.toggleReplyMention()
+			return nil
 		case keybind.Matches(msg, c.cfg.Keybinds.Composer.Undo.Keybind):
 			return c.forwardToTextArea(tcell.NewEventKey(tcell.KeyCtrlZ, "", tcell.ModNone))
 		}
@@ -836,6 +841,45 @@ func (c *composer) attach(name string, reader io.Reader) {
 	c.SetFooter("Attached " + humanJoin(names))
 }
 
+func (c *composer) canEditLastMessage() bool {
+	return !c.Disabled() && !c.edit && c.Text() == "" &&
+		c.sendMessageData.Reference == nil && len(c.sendMessageData.Files) == 0 &&
+		!c.chat.GetVisible(mentionsListLayerName)
+}
+
+func (c *composer) editLastMessage() tview.Cmd {
+	channel, ok := c.chat.SelectedChannel()
+	if !ok {
+		return nil
+	}
+	ml := c.chat.messagesList
+	for i, message := range slices.Backward(ml.messages) {
+		if message.ChannelID != channel.ID || !c.chat.isMe(message.Author.ID) ||
+			!message.ID.IsValid() || message.Content == "" || len(message.MessageSnapshots) > 0 ||
+			(message.Type != discord.DefaultMessage && message.Type != discord.InlinedReplyMessage) {
+			continue
+		}
+		ml.SetCursor(i)
+		return ml.editSelectedMessage()
+	}
+	return nil
+}
+
+func (c *composer) toggleReplyMention() {
+	data := c.sendMessageData
+	if data.Reference == nil || data.AllowedMentions == nil || data.AllowedMentions.RepliedUser == nil {
+		return
+	}
+
+	mention := !*data.AllowedMentions.RepliedUser
+	title := strings.TrimPrefix(c.Title(), "[@] ")
+	if mention {
+		title = "[@] " + title
+	}
+	data.AllowedMentions.RepliedUser = option.Some(mention)
+	c.SetTitle(title)
+}
+
 func (c *composer) canAttachFiles() bool {
 	selectedChannel, ok := c.chat.SelectedChannel()
 	return ok && c.chat.state.HasPermissions(selectedChannel.ID, discord.PermissionAttachFiles)
@@ -854,6 +898,12 @@ func (c *composer) ShortHelp() []keybind.Keybind {
 
 	cfg := c.cfg.Keybinds.Composer
 	short := []keybind.Keybind{cfg.Send.Keybind, cfg.Newline.Keybind, cfg.Cancel.Keybind, cfg.Paste.Keybind, cfg.OpenEditor.Keybind}
+	if c.canEditLastMessage() {
+		short = append(short, cfg.EditLast.Keybind)
+	}
+	if c.sendMessageData.Reference != nil {
+		short = append(short, cfg.ToggleReplyMention.Keybind)
+	}
 	if c.canAttachFiles() {
 		short = append(short, cfg.OpenFilePicker.Keybind)
 	}
@@ -877,8 +927,13 @@ func (c *composer) FullHelp() [][]keybind.Keybind {
 		openEditor = append(openEditor, cfg.OpenFilePicker.Keybind)
 	}
 
+	compose := []keybind.Keybind{cfg.Send.Keybind, cfg.Newline.Keybind, cfg.Cancel.Keybind, cfg.Undo.Keybind, cfg.EditLast.Keybind}
+	if c.sendMessageData.Reference != nil {
+		compose = append(compose, cfg.ToggleReplyMention.Keybind)
+	}
+
 	return [][]keybind.Keybind{
-		{cfg.Send.Keybind, cfg.Newline.Keybind, cfg.Cancel.Keybind, cfg.Undo.Keybind},
+		compose,
 		openEditor,
 	}
 }
