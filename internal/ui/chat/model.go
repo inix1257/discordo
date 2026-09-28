@@ -392,6 +392,9 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			return tview.Batch(focusCmd, m.messagesList.requestGuildMembers(msg.Channel.GuildID, msg.Messages))
 		}
 		return focusCmd
+	case olderMessagesLoadedMsg:
+		// Async responses must reach the list even when another pane has focus.
+		return m.messagesList.onOlderMessagesLoaded(msg)
 	case deleteMessageMsg:
 		return m.messagesList.deleteMessageRequest(discord.Message(msg))
 	case attachmentActionMsg:

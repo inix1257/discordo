@@ -57,6 +57,11 @@ type messagesList struct {
 	itemByID map[discord.MessageID]*tview.TextView
 
 	attachmentsPicker *attachmentspicker.Model
+
+	// olderLoading is the channel whose older-history request is in flight.
+	olderLoading discord.ChannelID
+	// olderExhausted is set once the start of the channel history is loaded.
+	olderExhausted bool
 }
 
 var _ help.KeyMap = (*messagesList)(nil)
@@ -108,6 +113,7 @@ func (ml *messagesList) reset() {
 	ml.messages = nil
 	ml.rows = nil
 	clear(ml.itemByID)
+	ml.resetOlderHistory()
 	ml.
 		Clear().
 		SetBuilder(ml.buildItem).
@@ -134,6 +140,7 @@ func (ml *messagesList) setMessages(messages []discord.Message) {
 	ml.messages = slices.Clone(messages)
 	slices.Reverse(ml.messages)
 	clear(ml.itemByID)
+	ml.resetOlderHistory()
 	ml.rebuildRows()
 }
 
@@ -963,36 +970,13 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 			return ml.showMessageMenu(x, y)
 		}
 	case olderMessagesLoadedMsg:
-		selectedChannel, ok := ml.chat.SelectedChannel()
-		if !ok || selectedChannel.ID != msg.ChannelID {
-			return nil
-		}
-		prevCursor := ml.Cursor()
-
-		// Defensive invalidation if Discord returns overlapping windows.
-		for _, message := range msg.Older {
-			delete(ml.itemByID, message.ID)
-		}
-		ml.messages = slices.Concat(msg.Older, ml.messages)
-		ml.rebuildRows()
-
-		switch {
-		case prevCursor == 0:
-			// Preserve "SelectUp at top" semantics: move to the next older message.
-			ml.SetCursor(len(msg.Older) - 1)
-		case prevCursor > 0:
-			// Keep selection on the same message after prepend shifts indexes.
-			ml.SetCursor(prevCursor + len(msg.Older))
-		default:
-			ml.SetCursor(prevCursor)
-		}
-		if selectedChannel.GuildID.IsValid() {
-			return ml.requestGuildMembers(selectedChannel.GuildID, msg.Older)
-		}
-		return nil
+		return ml.onOlderMessagesLoaded(msg)
 	}
 	cmd := ml.Model.Update(msg)
 	ml.onRowCursorChanged(ml.Model.Cursor())
+	if mouse, ok := msg.(tview.MouseMsg); ok && mouse.Action == tview.MouseScrollUp {
+		return tview.Batch(cmd, ml.loadOlderOnScrollTop(mouse))
+	}
 	return cmd
 }
 
@@ -1065,31 +1049,6 @@ func (ml *messagesList) selectReply() {
 		if refIdx != -1 {
 			ml.SetCursor(refIdx)
 		}
-	}
-}
-
-func (ml *messagesList) fetchOlderMessages() tview.Cmd {
-	selectedChannel, ok := ml.chat.SelectedChannel()
-	if !ok {
-		return nil
-	}
-
-	channelID := selectedChannel.ID
-	before := ml.messages[0].ID
-	limit := uint(ml.cfg.MessagesLimit)
-	return func() tview.Msg {
-		messages, err := ml.chat.state.MessagesBefore(channelID, before, limit)
-		if err != nil {
-			slog.Error("failed to fetch older messages", "err", err)
-			return nil
-		}
-		if len(messages) == 0 {
-			return nil
-		}
-
-		older := slices.Clone(messages)
-		slices.Reverse(older)
-		return olderMessagesLoadedMsg{ChannelID: channelID, Older: older}
 	}
 }
 

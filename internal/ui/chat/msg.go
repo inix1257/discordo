@@ -45,7 +45,13 @@ type channelLoadedMsg struct {
 
 type olderMessagesLoadedMsg struct {
 	ChannelID discord.ChannelID
-	Older     []discord.Message
+	// Before is the oldest message ID that was loaded when the request started.
+	Before discord.MessageID
+	Older  []discord.Message
+	// Exhausted reports that Discord has no messages older than Older.
+	Exhausted bool
+	// FromScroll reports that mouse-wheel scrolling triggered the request.
+	FromScroll bool
 }
 
 type deleteMessageMsg discord.Message
