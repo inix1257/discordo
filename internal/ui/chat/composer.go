@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -234,13 +235,38 @@ type imagePastedMsg []byte
 
 func pasteImage() tview.Cmd {
 	return func() tview.Msg {
-		data, err := clipboard.Read(context.Background(), clipboard.FmtImage)
+		data, err := clipboardImage()
 		if err != nil {
-			slog.Error("failed to read from clipboard", "err", err)
+			if !errors.Is(err, clipboard.ErrNoData) {
+				slog.Error("failed to read from clipboard", "err", err)
+			}
 			return nil
 		}
 		return imagePastedMsg(data)
 	}
+}
+
+// clipboardImage reads a pasted image. FmtImage only accepts CF_DIBV5, so a screenshot or a browser copy that is only on the registered PNG format is missed.
+func clipboardImage() ([]byte, error) {
+	ctx := context.Background()
+	formats := []clipboard.Format{
+		clipboard.FmtImage,
+		clipboard.Register("image/png"),
+	}
+	var last error
+	for _, format := range formats {
+		data, err := clipboard.Read(ctx, format)
+		if err == nil && len(data) > 0 {
+			return data, nil
+		}
+		if err != nil && !errors.Is(err, clipboard.ErrNoData) {
+			last = err
+		}
+	}
+	if last != nil {
+		return nil, last
+	}
+	return nil, clipboard.ErrNoData
 }
 
 type filesPickedMsg struct {

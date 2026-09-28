@@ -62,6 +62,7 @@ func Run() error {
 		screen.EnableMouse()
 	}
 	screen.EnablePaste()
+	screen = wrapPasteScreen(screen)
 
 	tview.Styles = tview.Theme{}
 	return tview.NewApplication(root.NewModel(cfg), tview.WithScreen(screen)).Run()
