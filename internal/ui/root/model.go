@@ -134,7 +134,7 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			if m.inner != nil {
 				innerCmd = m.inner.Update(chat.QuitMsg{})
 			}
-			return tview.Sequence(innerCmd, tview.Quit())
+			return tview.Batch(innerCmd, tview.Quit())
 		}
 	case tview.MouseMsg, tview.PasteMsg, tview.FormSubmitMsg, tview.FormCancelMsg:
 		if m.modalRequest != nil {
