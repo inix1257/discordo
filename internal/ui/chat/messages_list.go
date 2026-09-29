@@ -1444,9 +1444,6 @@ func (ml *messagesList) reply(mention bool) tview.Cmd {
 	}
 
 	name := selectedMessage.Author.DisplayOrUsername()
-	if member := ml.memberForMessage(*selectedMessage); member != nil && member.Nick != "" {
-		name = member.Nick
-	}
 
 	data := ml.chat.composer.sendMessageData
 	data.Reference = &discord.MessageReference{MessageID: selectedMessage.ID}

@@ -144,10 +144,6 @@ func (m *Model) notify(message gateway.MessageCreateEvent) tview.Cmd {
 				return nil
 			}
 
-			if member := message.Member; member != nil && member.Nick != "" {
-				title = member.Nick
-			}
-
 			title += " (#" + channel.Name + ", " + guild.Name + ")"
 		}
 

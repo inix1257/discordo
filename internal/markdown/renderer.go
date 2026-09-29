@@ -298,11 +298,7 @@ func mentionText(node *discordmd.Mention) string {
 	case node.Channel != nil:
 		return "#" + node.Channel.Name
 	case node.GuildUser != nil:
-		name := node.GuildUser.DisplayOrUsername()
-		if member := node.GuildUser.Member; member != nil && member.Nick != "" {
-			name = member.Nick
-		}
-		return "@" + name
+		return "@" + node.GuildUser.DisplayOrUsername()
 	case node.GuildRole != nil:
 		return "@" + node.GuildRole.Name
 	default:
