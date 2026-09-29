@@ -10,10 +10,13 @@ This is a personal fork of [ayn2op/discordo](https://github.com/ayn2op/discordo)
 - DMs that receive a new message move to the top.
 - A mouse button on the border collapses and expands the guilds pane.
 - Picking a channel or clicking an item keeps the current scroll position.
+- Channels and guilds with a mention are drawn black on white.
+- A collapsed guild, folder, or category shows `N mentions` before its name.
+- When a mention is scrolled out of view, a white `▲` or `▼` bar replaces the first or last row. Clicking it jumps to the nearest mention.
 
 **Messages**
 
-- Authors show by display name instead of server nickname.
+- Authors, mentions, reply titles, and notifications show the display name instead of the server nickname.
 - Timestamps sit after the author and appear once per author per minute.
 - Reactions render as bracketed chips and stickers as green `(sticker)` labels.
 - File links and attachments show the file name instead of the full URL.

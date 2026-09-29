@@ -34,7 +34,13 @@ type guildsTree struct {
 	channelNodeByID map[discord.ChannelID]*tree.Node
 	dmRootNode      *tree.Node
 
+	// Mention label currently shown at the start of a node's line.
+	badges map[*tree.Node]string
+
 	loadingChannelID discord.ChannelID
+
+	// Arrow bars drawn over the first and last rows by the last View call.
+	topBar, bottomBar mentionBar
 }
 
 func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
@@ -45,6 +51,7 @@ func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
 
 		guildNodeByID:   make(map[discord.GuildID]*tree.Node),
 		channelNodeByID: make(map[discord.ChannelID]*tree.Node),
+		badges:          make(map[*tree.Node]string),
 	}
 	ui.ConfigureBox(gt.Box, &cfg.Theme)
 	gt.
@@ -72,7 +79,9 @@ func newGuildsTree(cfg *config.Config, state *ningen.State) *guildsTree {
 }
 
 func (gt *guildsTree) View(screen tcell.Screen) {
+	gt.refreshMentionBadges()
 	gt.Model.View(screen)
+	gt.drawMentionIndicators(screen)
 	if gt.cfg.Mouse {
 		drawExpandedGuildsToggle(screen, gt.Box, gt.cfg, gt.HasFocus())
 	}
@@ -94,6 +103,7 @@ func (gt *guildsTree) resetNodeIndex() {
 	// Keep allocated map capacity; READY can rebuild often during reconnects.
 	clear(gt.guildNodeByID)
 	clear(gt.channelNodeByID)
+	clear(gt.badges)
 	gt.dmRootNode = nil
 }
 
@@ -136,8 +146,7 @@ func (gt *guildsTree) unreadStyle(indication ningen.UnreadIndication) tcell.Styl
 	case ningen.ChannelRead:
 		style = style.Foreground(tcell.NewHexColor(0x8a8a8a))
 	case ningen.ChannelMentioned:
-		style = style.Underline(true)
-		fallthrough
+		style = style.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite).Bold(true)
 	case ningen.ChannelUnread:
 		style = style.Bold(true)
 	}
@@ -378,6 +387,9 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		x, y := msg.Position()
 		if msg.Action == tview.MouseLeftClick && hitGuildsToggle(gt.Box, false, x, y) {
 			return toggleGuildsTree()
+		}
+		if msg.Action == tview.MouseLeftClick && gt.InRect(x, y) && gt.jumpToMentionBar(y) {
+			return tview.SetFocus(gt)
 		}
 	case tview.KeyMsg:
 		switch {
