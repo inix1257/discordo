@@ -13,6 +13,7 @@ This is a personal fork of [ayn2op/discordo](https://github.com/ayn2op/discordo)
 - Channels and guilds with a mention are drawn black on white.
 - A collapsed guild, folder, or category shows `N mentions` before its name.
 - When a mention is scrolled out of view, a white `▲` or `▼` bar replaces the first or last row. Clicking it jumps to the nearest mention.
+- Right-clicking a channel (or pressing `f`) adds it to favorites. Favorites stay pinned in their own scrollable pane above the guilds tree, share its unread and mention colors, and get a `★` in the tree. They are saved in `favorites.json` next to the config file.
 
 **Messages**
 
@@ -21,9 +22,12 @@ This is a personal fork of [ayn2op/discordo](https://github.com/ayn2op/discordo)
 - Reactions render as bracketed chips and stickers as green `(sticker)` labels.
 - File links and attachments show the file name instead of the full URL.
 - Scrolling to the top with the mouse wheel loads older messages.
+- When a message that mentions you is scrolled out of view, a white `▲` or `▼` bar covers the top or bottom row, like in the guilds tree. Clicking it selects the nearest one.
 - Clicking a message keeps the list scroll position.
 - A right-click menu offers copy, reply, edit, delete, and open.
+- Clicking an author name opens a small profile popup with status, roles, nickname, and join dates.
 - Copying a message includes the extra URLs from attachments and embeds.
+- `Ctrl+R` or the `@` button on the top right of the messages pane opens a Recent Mentions popup like the official client's inbox. Picking one opens its channel with that message selected. The button turns black on white while unread mentions are waiting, and unread entries get a `●` marker.
 
 **Attachments**
 
