@@ -91,6 +91,9 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 	}
 
 	m.guildsTree.SetCurrentNode(root)
+	m.favorites.rebuild()
+	m.layoutSidebar()
+	m.refreshMentionsUnread()
 	return tview.SetFocus(m.guildsTree)
 }
 
@@ -245,6 +248,9 @@ func (m *Model) onTypingStart(event *gateway.TypingStartEvent) {
 }
 
 func (m *Model) onReadUpdate(event *read.UpdateEvent) {
+	m.favorites.refreshStyle(event.ChannelID)
+	m.refreshMentionsUnread()
+
 	// Use indexed node lookup to avoid walking the whole tree on every read event.
 	// This runs frequently while reading/typing across channels.
 	if event.GuildID.IsValid() {

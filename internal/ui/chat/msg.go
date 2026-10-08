@@ -41,6 +41,12 @@ func listen(events <-chan gateway.Event) tview.Cmd {
 type channelLoadedMsg struct {
 	Channel  discord.Channel
 	Messages []discord.Message
+	// Target is the message to select once the channel is shown, if valid.
+	Target discord.MessageID
+}
+
+type mentionsLoadedMsg struct {
+	Messages []discord.Message
 }
 
 type olderMessagesLoadedMsg struct {
@@ -79,3 +85,9 @@ func toggleGuildsTree() tview.Cmd {
 type FocusedMsg struct{ Model tview.Model }
 
 func focused(model tview.Model) tview.Cmd { return func() tview.Msg { return FocusedMsg{model} } }
+
+type toggleMentionsInboxMsg struct{}
+
+func toggleMentionsInbox() tview.Cmd {
+	return func() tview.Msg { return toggleMentionsInboxMsg{} }
+}

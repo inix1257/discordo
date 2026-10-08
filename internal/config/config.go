@@ -135,9 +135,11 @@ type (
 
 	SidebarConfig struct {
 		// WidthPercent is the percentage of the total window width that the guilds tree (sidebar) occupies.
-		WidthPercent int                  `toml:"width_percent"`
-		Markers      SidebarMarkersConfig `toml:"markers"`
-		Indents      SidebarIndentsConfig `toml:"indents"`
+		WidthPercent int `toml:"width_percent"`
+		// FavoritesHeight is the maximum number of rows the favorite channels pane shows before it scrolls.
+		FavoritesHeight int                  `toml:"favorites_height"`
+		Markers         SidebarMarkersConfig `toml:"markers"`
+		Indents         SidebarIndentsConfig `toml:"indents"`
 	}
 
 	Config struct {
@@ -182,6 +184,11 @@ var dir = sync.OnceValue(func() string {
 	}
 	return filepath.Join(path, consts.Name)
 })
+
+// Dir is the directory that holds the default configuration file.
+func Dir() string {
+	return dir()
+}
 
 func DefaultPath() string {
 	return filepath.Join(dir(), fileName)
@@ -232,6 +239,10 @@ func applyDefaults(cfg *Config) {
 		// setting an extremely low width, but that's for the
 		// user to decide.
 		cfg.Sidebar.WidthPercent = 20
+	}
+
+	if cfg.Sidebar.FavoritesHeight <= 0 {
+		cfg.Sidebar.FavoritesHeight = 8
 	}
 
 	if cfg.DateSeparator.Format == "" {

@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/ayn2op/discordo/internal/ui/chat/attachmentspicker"
 	"github.com/ayn2op/discordo/internal/ui/chat/channelspicker"
 	"github.com/ayn2op/discordo/internal/ui/chat/contextmenu"
+	"github.com/ayn2op/discordo/internal/ui/chat/mentionsinbox"
+	"github.com/ayn2op/discordo/internal/ui/chat/profilecard"
 	"github.com/ayn2op/ningen/v3"
 	"github.com/ayn2op/ningen/v3/states/read"
 	"github.com/ayn2op/tview"
@@ -37,24 +40,36 @@ const (
 	mentionsListLayerName = "mentionsList"
 
 	channelsPickerLayerName    = "channelsPicker"
+	mentionsInboxLayerName     = "mentionsInbox"
 	attachmentsPickerLayerName = "attachmentsPicker"
 	messageMenuLayerName       = "messageMenu"
+	profileCardLayerName       = "profileCard"
 )
 
 type Model struct {
 	*layers.Layers
 
-	// guildsTree (sidebar) + rightFlex
+	// sidebar + rightFlex
 	mainFlex *flex.Model
+	// favorites + guildsTree
+	sidebar *flex.Model
 	// messagesList + composer
 	rightFlex *flex.Model
 
 	guildsTree     *guildsTree
+	favorites      *favoritesTree
 	messagesList   *messagesList
 	composer       *composer
 	channelsPicker *channelspicker.Model
+	mentionsInbox  *mentionsinbox.Model
 	messageMenu    *contextmenu.Model
+	profileCard    *profilecard.Model
 	focused        tview.Model
+
+	// Pane that opened the context menu and gets focus back when it closes.
+	menuOwner tview.Model
+	// Channel the open channel menu acts on.
+	menuChannelID discord.ChannelID
 
 	selectedChannel   *discord.Channel
 	selectedChannelMu sync.RWMutex
@@ -68,6 +83,8 @@ type Model struct {
 	cfg *config.Config
 
 	guildsCollapsed bool
+	// mentionsUnread lights up the recent mentions button.
+	mentionsUnread bool
 }
 
 func NewModel(cfg *config.Config, token string) *Model {
@@ -75,6 +92,7 @@ func NewModel(cfg *config.Config, token string) *Model {
 		Layers: layers.New(),
 
 		mainFlex:  flex.NewModel(),
+		sidebar:   flex.NewModel(),
 		rightFlex: flex.NewModel(),
 
 		typers: make(map[discord.UserID]*time.Timer),
@@ -110,10 +128,13 @@ func NewModel(cfg *config.Config, token string) *Model {
 	m.state.OnRequest = append(m.state.OnRequest, httputil.WithHeaders(http.Headers()), m.onRequest)
 
 	m.guildsTree = newGuildsTree(cfg, m.state)
+	m.favorites = newFavoritesTree(cfg, m.guildsTree)
 	m.messagesList = newMessagesList(cfg, m)
 	m.composer = newComposer(cfg, m)
 	m.channelsPicker = channelspicker.NewModel(cfg)
+	m.mentionsInbox = mentionsinbox.NewModel(cfg)
 	m.messageMenu = contextmenu.NewModel(cfg)
+	m.profileCard = profilecard.NewModel(cfg)
 
 	m.SetBackgroundLayerStyle(m.cfg.Theme.Dialog.BackgroundStyle.Style)
 	m.buildLayout()
@@ -163,6 +184,13 @@ func (m *Model) buildLayout() {
 		layers.WithVisible(false),
 		layers.WithEnabled(false),
 	)
+	m.AddLayer(
+		m.profileCard,
+		layers.WithName(profileCardLayerName),
+		layers.WithResize(false),
+		layers.WithVisible(false),
+		layers.WithEnabled(false),
+	)
 }
 
 func (m *Model) togglePicker() tview.Cmd {
@@ -190,11 +218,84 @@ func (m *Model) closePicker() tview.Cmd {
 	return tview.SetFocus(m.mainFlex)
 }
 
+// toggleMentionsInbox opens the recent mentions popup at 80% of the screen width.
+func (m *Model) toggleMentionsInbox() tview.Cmd {
+	if m.HasLayer(mentionsInboxLayerName) {
+		return m.closeMentionsInbox()
+	}
+
+	m.mentionsInbox.SetLoading()
+	m.AddLayer(
+		ui.Centered(m.mentionsInbox, -8, m.cfg.Picker.Height),
+		layers.WithName(mentionsInboxLayerName),
+		layers.WithResize(true),
+		layers.WithVisible(true),
+		layers.WithOverlay(),
+	).SendToFront(mentionsInboxLayerName)
+
+	state := m.state
+	fetch := func() tview.Msg {
+		messages, err := mentionsinbox.Fetch(state)
+		if err != nil {
+			slog.Error("failed to fetch recent mentions", "err", err)
+		}
+		return mentionsLoadedMsg{Messages: messages}
+	}
+	return tview.Batch(tview.SetFocus(m.mentionsInbox), fetch)
+}
+
+func (m *Model) closeMentionsInbox() tview.Cmd {
+	m.RemoveLayer(mentionsInboxLayerName)
+	return tview.SetFocus(m.mainFlex)
+}
+
+func (m *Model) jumpToMention(msg mentionsinbox.SelectedMsg) tview.Cmd {
+	focus := m.closeMentionsInbox()
+	channel, err := m.state.Cabinet.Channel(msg.ChannelID)
+	if err != nil {
+		slog.Error("failed to get channel from state", "err", err, "channel_id", msg.ChannelID)
+		return focus
+	}
+	return tview.Sequence(focus, m.guildsTree.loadChannelAt(*channel, msg.MessageID))
+}
+
 func (m *Model) openMessageMenu(x, y int, items []string) tview.Cmd {
+	return m.openContextMenu(m.messagesList, "Message", x, y, items)
+}
+
+func (m *Model) openChannelMenu(msg channelMenuMsg) tview.Cmd {
+	item := channelMenuFavorite
+	if m.favorites.has(msg.ChannelID) {
+		item = channelMenuUnfavorite
+	}
+	m.menuChannelID = msg.ChannelID
+	return m.openContextMenu(msg.Owner, "Channel", msg.X, msg.Y, []string{item})
+}
+
+func (m *Model) applyChannelMenu(choice string) tview.Cmd {
+	switch choice {
+	case channelMenuFavorite, channelMenuUnfavorite:
+		return m.toggleFavorite(m.menuChannelID)
+	}
+	return nil
+}
+
+func (m *Model) toggleFavorite(id discord.ChannelID) tview.Cmd {
+	m.guildsTree.setFavoriteMarker(id, m.favorites.toggle(id))
+	m.layoutSidebar()
+	if m.favorites.empty() && m.favorites.HasFocus() {
+		return tview.SetFocus(m.guildsTree)
+	}
+	return nil
+}
+
+func (m *Model) openContextMenu(owner tview.Model, title string, x, y int, items []string) tview.Cmd {
 	if len(items) == 0 {
 		return nil
 	}
 
+	m.menuOwner = owner
+	m.messageMenu.SetTitle(title)
 	m.messageMenu.SetItems(items)
 	w, h := m.messageMenu.PreferredSize()
 	_, _, maxW, maxH := m.InnerRect()
@@ -213,7 +314,14 @@ func (m *Model) openMessageMenu(x, y int, items []string) tview.Cmd {
 func (m *Model) closeMessageMenu() tview.Cmd {
 	m.HideLayer(messageMenuLayerName)
 	m.SetLayerEnabled(messageMenuLayerName, false)
-	return tview.SetFocus(m.messagesList)
+	owner := m.menuOwner
+	if owner == nil {
+		owner = m.messagesList
+	}
+	if owner == m.favorites && m.favorites.empty() {
+		owner = m.guildsTree
+	}
+	return tview.SetFocus(owner)
 }
 
 func (m *Model) closeAttachmentsPicker() tview.Cmd {
@@ -241,16 +349,28 @@ func (m *Model) layoutMainFlex() {
 		m.mainFlex.AddItem(m.rightFlex, 0, 1, false)
 		return
 	}
+	m.layoutSidebar()
 	m.mainFlex.
-		AddItem(m.guildsTree, 0, m.cfg.Sidebar.WidthPercent, true).
+		AddItem(m.sidebar, 0, m.cfg.Sidebar.WidthPercent, true).
 		AddItem(m.rightFlex, 0, 100-m.cfg.Sidebar.WidthPercent, false)
+}
+
+// layoutSidebar pins the favorites pane above the guilds tree while it has
+// channels to show.
+func (m *Model) layoutSidebar() {
+	m.sidebar.Clear()
+	m.sidebar.SetDirection(flex.DirectionRow)
+	if !m.favorites.empty() {
+		m.sidebar.AddItem(m.favorites, m.favorites.height(), 0, false)
+	}
+	m.sidebar.AddItem(m.guildsTree, 0, 1, true)
 }
 
 func (m *Model) toggleGuildsTree() tview.Cmd {
 	m.guildsCollapsed = !m.guildsCollapsed
 	m.layoutMainFlex()
 	if m.guildsCollapsed {
-		if m.guildsTree.HasFocus() {
+		if m.guildsTree.HasFocus() || m.favorites.HasFocus() {
 			return tview.SetFocus(m.messagesList)
 		}
 		return nil
@@ -265,6 +385,14 @@ func (m *Model) focusGuildsTree() tview.Cmd {
 	return nil
 }
 
+// focusSidebar focuses the top pane of the sidebar.
+func (m *Model) focusSidebar() tview.Cmd {
+	if !m.guildsCollapsed && !m.favorites.empty() {
+		return tview.SetFocus(m.favorites)
+	}
+	return m.focusGuildsTree()
+}
+
 func (m *Model) focusComposer() tview.Cmd {
 	if !m.composer.Disabled() {
 		return tview.SetFocus(m.composer)
@@ -274,7 +402,15 @@ func (m *Model) focusComposer() tview.Cmd {
 
 func (m *Model) focusPrevious() tview.Cmd {
 	switch m.focused {
+	case m.favorites:
+		if cmd := m.focusComposer(); cmd != nil {
+			return cmd
+		}
+		return tview.SetFocus(m.messagesList)
 	case m.guildsTree:
+		if !m.favorites.empty() {
+			return tview.SetFocus(m.favorites)
+		}
 		if cmd := m.focusComposer(); cmd != nil {
 			return cmd
 		}
@@ -295,17 +431,19 @@ func (m *Model) focusPrevious() tview.Cmd {
 
 func (m *Model) focusNext() tview.Cmd {
 	switch m.focused {
+	case m.favorites:
+		return m.focusGuildsTree()
 	case m.guildsTree:
 		return tview.SetFocus(m.messagesList)
 	case m.messagesList:
 		if cmd := m.focusComposer(); cmd != nil {
 			return cmd
 		}
-		if cmd := m.focusGuildsTree(); cmd != nil {
+		if cmd := m.focusSidebar(); cmd != nil {
 			return cmd
 		}
 	case m.composer:
-		if cmd := m.focusGuildsTree(); cmd != nil {
+		if cmd := m.focusSidebar(); cmd != nil {
 			return cmd
 		}
 		return tview.SetFocus(m.messagesList)
@@ -387,6 +525,14 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		} else if m.cfg.AutoFocus {
 			focusCmd = m.focusComposer()
 		}
+		if msg.Target.IsValid() {
+			if i := slices.IndexFunc(m.messagesList.messages, func(message discord.Message) bool {
+				return message.ID == msg.Target
+			}); i != -1 {
+				m.messagesList.SetCursor(i)
+				focusCmd = tview.SetFocus(m.messagesList)
+			}
+		}
 		m.composer.SetPlaceholder(tview.NewLine(tview.NewSegment(text, tcell.StyleDefault.Dim(true))))
 		if msg.Channel.GuildID.IsValid() {
 			return tview.Batch(focusCmd, m.messagesList.requestGuildMembers(msg.Channel.GuildID, msg.Messages))
@@ -403,11 +549,31 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return m.navigateToChannel(msg.ChannelID)
 	case channelspicker.CancelMsg:
 		return m.closePicker()
+	case mentionsLoadedMsg:
+		if m.HasLayer(mentionsInboxLayerName) {
+			m.mentionsInbox.SetMentions(m.state, msg.Messages)
+		}
+		return nil
+	case mentionsinbox.SelectedMsg:
+		return m.jumpToMention(msg)
+	case mentionsinbox.CancelMsg:
+		return m.closeMentionsInbox()
 	case contextmenu.SelectedMsg:
-		cmd := m.messagesList.applyMessageMenu(msg.Text)
+		var cmd tview.Cmd
+		if m.menuOwner == m.messagesList {
+			cmd = m.messagesList.applyMessageMenu(msg.Text)
+		} else {
+			cmd = m.applyChannelMenu(msg.Text)
+		}
 		return tview.Sequence(m.closeMessageMenu(), cmd)
+	case channelMenuMsg:
+		return m.openChannelMenu(msg)
+	case toggleFavoriteMsg:
+		return m.toggleFavorite(msg.ChannelID)
 	case contextmenu.CancelMsg:
 		return m.closeMessageMenu()
+	case profilecard.CloseMsg:
+		return m.closeProfileCard()
 	case attachmentspicker.SelectedMsg:
 		return tview.Sequence(msg.Action, m.closeAttachmentsPicker())
 	case attachmentspicker.CancelMsg:
@@ -416,6 +582,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return closeState(m.state)
 	case toggleGuildsTreeMsg:
 		return m.toggleGuildsTree()
+	case toggleMentionsInboxMsg:
+		return m.toggleMentionsInbox()
 	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, m.cfg.Keybinds.FocusGuildsTree.Keybind):
@@ -436,6 +604,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			return m.toggleGuildsTree()
 		case keybind.Matches(msg, m.cfg.Keybinds.ToggleChannelsPicker.Keybind):
 			return m.togglePicker()
+		case keybind.Matches(msg, m.cfg.Keybinds.ToggleMentionsInbox.Keybind):
+			return m.toggleMentionsInbox()
 
 		case keybind.Matches(msg, m.cfg.Keybinds.Logout.Keybind):
 			return tview.Sequence(closeState(m.state), logout())

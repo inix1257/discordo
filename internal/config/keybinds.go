@@ -60,8 +60,9 @@ type PickerKeybinds struct {
 
 type GuildsTreeKeybinds struct {
 	SelectionKeybinds
-	SelectCurrent Keybind `toml:"select_current"`
-	YankID        Keybind `toml:"yank_id"`
+	SelectCurrent  Keybind `toml:"select_current"`
+	YankID         Keybind `toml:"yank_id"`
+	ToggleFavorite Keybind `toml:"toggle_favorite"`
 
 	CollapseAll        Keybind `toml:"collapse_all"`
 	CollapseParentNode Keybind `toml:"collapse_parent_node"`
@@ -111,6 +112,7 @@ type MentionsListKeybinds struct {
 type Keybinds struct {
 	ToggleGuildsTree     Keybind `toml:"toggle_guilds_tree"`
 	ToggleChannelsPicker Keybind `toml:"toggle_channels_picker"`
+	ToggleMentionsInbox  Keybind `toml:"toggle_mentions_inbox"`
 	ToggleHelp           Keybind `toml:"toggle_help"`
 	ToggleFullHelp       Keybind `toml:"toggle_full_help"`
 	Suspend              Keybind `toml:"suspend"`
@@ -154,6 +156,7 @@ func defaultGuildsTreeKeybinds() GuildsTreeKeybinds {
 		SelectionKeybinds: defaultSelectionKeybinds(),
 		SelectCurrent:     desc("select"),
 		YankID:            desc("copy id"),
+		ToggleFavorite:    desc("favorite"),
 
 		CollapseAll:        desc("collapse all"),
 		CollapseParentNode: desc("collapse parent"),
@@ -210,6 +213,7 @@ func defaultKeybinds() Keybinds {
 	return Keybinds{
 		ToggleGuildsTree:     desc("toggle guilds"),
 		ToggleChannelsPicker: desc("channels picker"),
+		ToggleMentionsInbox:  desc("recent mentions"),
 		ToggleHelp:           desc("toggle help"),
 		ToggleFullHelp:       desc("full help"),
 		Suspend:              desc("suspend"),

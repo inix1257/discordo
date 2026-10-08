@@ -32,6 +32,9 @@ func (m *Model) activeKeyMap() help.KeyMap {
 	if m.GetVisible(channelsPickerLayerName) {
 		return m.channelsPicker
 	}
+	if m.GetVisible(mentionsInboxLayerName) {
+		return m.mentionsInbox
+	}
 	if m.GetVisible(attachmentsPickerLayerName) {
 		return m.messagesList.attachmentsPicker
 	}
@@ -39,6 +42,8 @@ func (m *Model) activeKeyMap() help.KeyMap {
 	switch m.focused {
 	case m.guildsTree:
 		return m.guildsTree
+	case m.favorites:
+		return m.favorites
 	case m.messagesList:
 		return m.messagesList
 	case m.composer:
@@ -51,7 +56,7 @@ func (m *Model) activeKeyMap() help.KeyMap {
 func (m *Model) baseShortHelp() []keybind.Keybind {
 	cfg := m.cfg.Keybinds
 	short := m.focusHelp()
-	short = append(short, cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind)
+	short = append(short, cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind, cfg.ToggleMentionsInbox.Keybind)
 	return short
 }
 
@@ -60,7 +65,7 @@ func (m *Model) baseFullHelp() [][]keybind.Keybind {
 	return [][]keybind.Keybind{
 		m.focusHelp(),
 		{cfg.FocusPrevious.Keybind, cfg.FocusNext.Keybind},
-		{cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind},
+		{cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind, cfg.ToggleMentionsInbox.Keybind},
 		{cfg.Logout.Keybind},
 	}
 }
