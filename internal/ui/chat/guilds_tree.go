@@ -39,6 +39,9 @@ type guildsTree struct {
 
 	loadingChannelID discord.ChannelID
 
+	// Favorites pane; channels in it get a star here.
+	favorites *favoritesTree
+
 	// Arrow bars drawn over the first and last rows by the last View call.
 	topBar, bottomBar mentionBar
 }
@@ -111,6 +114,9 @@ func (gt *guildsTree) updateDMNodeStyle(userID discord.UserID) {
 	channel, err := gt.state.Cabinet.CreatePrivateChannel(userID)
 	if err != nil {
 		return
+	}
+	if gt.favorites != nil {
+		gt.favorites.refreshStyle(channel.ID)
 	}
 
 	node, ok := gt.channelNodeByID[channel.ID]
@@ -208,7 +214,11 @@ func (gt *guildsTree) createChannelNode(parent *tree.Node, channel discord.Chann
 	}
 
 	indents := gt.cfg.Sidebar.Indents
-	channelNode := tree.NewNode(ui.ChannelToString(channel, gt.cfg.Icons, gt.state)).SetReference(channel.ID)
+	label := ui.ChannelToString(channel, gt.cfg.Icons, gt.state)
+	if gt.isFavorite(channel.ID) {
+		label = favoriteMarker + label
+	}
+	channelNode := tree.NewNode(label).SetReference(channel.ID)
 	gt.setNodeLineStyle(channelNode, gt.channelNodeStyle(channel))
 	switch channel.Type {
 	case discord.DirectMessage:
@@ -348,6 +358,16 @@ func (gt *guildsTree) onSelected(node *tree.Node) tview.Cmd {
 }
 
 func (gt *guildsTree) loadChannel(channel discord.Channel) tview.Cmd {
+	return gt.loadChannelAt(channel, 0)
+}
+
+// maxTargetPages caps how many older pages loadChannelAt fetches while
+// looking for its target message.
+const maxTargetPages = 5
+
+// loadChannelAt loads the channel and, when target is valid, keeps loading
+// older pages until the target message is in the window so it can be selected.
+func (gt *guildsTree) loadChannelAt(channel discord.Channel, target discord.MessageID) tview.Cmd {
 	gt.loadingChannelID = channel.ID
 	limit := uint(gt.cfg.MessagesLimit)
 	return func() tview.Msg {
@@ -357,12 +377,32 @@ func (gt *guildsTree) loadChannel(channel discord.Channel) tview.Cmd {
 			return nil
 		}
 
+		for page := 0; target.IsValid() && page < maxTargetPages && len(messages) > 0; page++ {
+			oldest := messages[len(messages)-1].ID
+			if oldest <= target {
+				break
+			}
+			older, err := gt.state.MessagesBefore(channel.ID, oldest, 100)
+			if err != nil {
+				slog.Error("failed to get older messages", "err", err, "channel_id", channel.ID)
+				break
+			}
+			if len(older) == 0 {
+				break
+			}
+			// REST messages omit guild_id, which role colors and members need.
+			for i := range older {
+				older[i].GuildID = channel.GuildID
+			}
+			messages = append(messages, older...)
+		}
+
 		// The tree node may hold an older channel snapshot.
 		if lastMessageID := gt.state.LastMessage(channel.ID); lastMessageID.IsValid() {
 			go gt.state.ReadState.MarkRead(channel.ID, lastMessageID)
 		}
 
-		return channelLoadedMsg{Channel: channel, Messages: messages}
+		return channelLoadedMsg{Channel: channel, Messages: messages, Target: target}
 	}
 }
 
@@ -391,6 +431,9 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		if msg.Action == tview.MouseLeftClick && gt.InRect(x, y) && gt.jumpToMentionBar(y) {
 			return tview.SetFocus(gt)
 		}
+		if msg.Action == tview.MouseRightClick && gt.InRect(x, y) {
+			return gt.channelMenu(x, y)
+		}
 	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.CollapseAll.Keybind):
@@ -402,14 +445,41 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 			gt.collapseParentNode(gt.CurrentNode())
 			return nil
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.YankID.Keybind):
-			return gt.yankID()
+			return gt.yankNodeID(gt.CurrentNode())
+		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.ToggleFavorite.Keybind):
+			if gt.currentFavoritable() {
+				return toggleCurrentFavorite(gt.CurrentNode())
+			}
+			return nil
 		}
 	}
 	return gt.Model.Update(msg)
 }
 
-func (gt *guildsTree) yankID() tview.Cmd {
+// channelMenu opens the channel menu for the channel row under the mouse.
+func (gt *guildsTree) channelMenu(x, y int) tview.Cmd {
+	node := nodeAtRow(gt.Model, gt.visibleNodes(), y)
+	if node == nil || !gt.favoritableNode(node) {
+		return nil
+	}
+	return tview.Sequence(tview.SetFocus(gt), channelMenuAt(gt, gt.Model, gt.visibleNodes(), x, y))
+}
+
+func (gt *guildsTree) currentFavoritable() bool {
 	node := gt.CurrentNode()
+	return node != nil && gt.favoritableNode(node)
+}
+
+func (gt *guildsTree) favoritableNode(node *tree.Node) bool {
+	id, ok := node.Reference().(discord.ChannelID)
+	if !ok {
+		return false
+	}
+	channel, err := gt.state.Cabinet.Channel(id)
+	return err == nil && favoritable(*channel)
+}
+
+func (gt *guildsTree) yankNodeID(node *tree.Node) tview.Cmd {
 	if node == nil {
 		return nil
 	}
@@ -491,7 +561,7 @@ func (gt *guildsTree) FullHelp() [][]keybind.Keybind {
 	return [][]keybind.Keybind{
 		{cfg.SelectUp.Keybind, cfg.SelectDown.Keybind, cfg.SelectTop.Keybind, cfg.SelectBottom.Keybind},
 		selectGroup,
-		{cfg.YankID.Keybind},
+		{cfg.YankID.Keybind, cfg.ToggleFavorite.Keybind},
 	}
 }
 

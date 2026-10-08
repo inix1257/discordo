@@ -39,7 +39,7 @@ func TestToggleGuildsTreeLayout(t *testing.T) {
 	}
 
 	m := NewModel(cfg, "token")
-	if m.guildsCollapsed || m.mainFlex.GetItemCount() != 2 || m.mainFlex.GetItem(0) != m.guildsTree {
+	if m.guildsCollapsed || m.mainFlex.GetItemCount() != 2 || m.mainFlex.GetItem(0) != m.sidebar {
 		t.Fatalf("initial collapsed=%v count=%d", m.guildsCollapsed, m.mainFlex.GetItemCount())
 	}
 
@@ -49,7 +49,7 @@ func TestToggleGuildsTreeLayout(t *testing.T) {
 	}
 
 	m.Update(toggleGuildsTreeMsg{})
-	if m.guildsCollapsed || m.mainFlex.GetItemCount() != 2 || m.mainFlex.GetItem(0) != m.guildsTree {
+	if m.guildsCollapsed || m.mainFlex.GetItemCount() != 2 || m.mainFlex.GetItem(0) != m.sidebar {
 		t.Fatal("guilds pane did not expand")
 	}
 }

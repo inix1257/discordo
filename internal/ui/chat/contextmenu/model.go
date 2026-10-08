@@ -50,7 +50,7 @@ func (m *Model) SetItems(items []string) {
 }
 
 func (m *Model) PreferredSize() (width, height int) {
-	width = uniseg.StringWidth("Message")
+	width = uniseg.StringWidth(m.Title())
 	for _, item := range m.items {
 		width = max(width, uniseg.StringWidth(item))
 	}

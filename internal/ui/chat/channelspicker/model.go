@@ -10,6 +10,7 @@ import (
 	"github.com/ayn2op/ningen/v3"
 	"github.com/ayn2op/tview"
 	"github.com/ayn2op/tview/picker"
+	"github.com/gdamore/tcell/v3"
 )
 
 type Model struct {
@@ -40,6 +41,11 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		return func() tview.Msg { return CancelMsg{} }
 	}
 	return m.Model.Update(msg)
+}
+
+func (m *Model) View(screen tcell.Screen) {
+	ui.ClearWideLeftEdge(screen, m.Box)
+	m.Model.View(screen)
 }
 
 func (m *Model) RefreshChannels(state *ningen.State) {
