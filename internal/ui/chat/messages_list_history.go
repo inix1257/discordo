@@ -45,7 +45,7 @@ func (ml *messagesList) requestOlderMessages(fromScroll bool) tview.Cmd {
 		return nil
 	}
 
-	channelID := selectedChannel.ID
+	channelID, guildID := selectedChannel.ID, selectedChannel.GuildID
 	before := ml.messages[0].ID
 	limit := uint(ml.cfg.MessagesLimit)
 	ml.olderLoading = channelID
@@ -59,6 +59,10 @@ func (ml *messagesList) requestOlderMessages(fromScroll bool) tview.Cmd {
 
 		msg.Exhausted = uint(len(messages)) < limit
 		msg.Older = slices.Clone(messages)
+		// REST messages omit guild_id, which role colors and members need.
+		for i := range msg.Older {
+			msg.Older[i].GuildID = guildID
+		}
 		slices.Reverse(msg.Older)
 		return msg
 	}

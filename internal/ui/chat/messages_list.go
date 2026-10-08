@@ -62,6 +62,12 @@ type messagesList struct {
 	olderLoading discord.ChannelID
 	// olderExhausted is set once the start of the channel history is loaded.
 	olderExhausted bool
+
+	// firstDrawn and lastDrawn are the message indexes drawn in the last
+	// frame, or -1.
+	firstDrawn, lastDrawn int
+	// topBar and bottomBar are the mentions the off-screen bars jump to, or -1.
+	topBar, bottomBar int
 }
 
 var _ help.KeyMap = (*messagesList)(nil)
@@ -85,6 +91,9 @@ func newMessagesList(cfg *config.Config, chat *Model) *messagesList {
 		cfg:      cfg,
 		chat:     chat,
 		renderer: markdown.NewRenderer(cfg),
+
+		firstDrawn: -1, lastDrawn: -1,
+		topBar: -1, bottomBar: -1,
 		itemByID: make(map[discord.MessageID]*tview.TextView),
 	}
 	ml.attachmentsPicker = attachmentspicker.NewModel(cfg)
@@ -130,10 +139,13 @@ func (ml *messagesList) setTitle(channel discord.Channel) {
 }
 
 func (ml *messagesList) View(screen tcell.Screen) {
+	ml.firstDrawn, ml.lastDrawn = -1, -1
 	ml.Model.View(screen)
+	ml.drawMentionIndicators(screen)
 	if ml.chat.guildsCollapsed && ml.cfg.Mouse {
 		drawCollapsedGuildsToggle(screen, ml.Box, ml.cfg, ml.HasFocus())
 	}
+	drawMentionsButton(screen, ml.Box, ml.cfg, ml.HasFocus(), ml.chat.mentionsUnread)
 }
 
 func (ml *messagesList) setMessages(messages []discord.Message) {
@@ -202,7 +214,7 @@ func (ml *messagesList) buildItem(index int) list.Item {
 			SetLines(ml.renderMessage(message, ml.cfg.Theme.MessagesList.MessageStyle.Style))
 		ml.itemByID[message.ID] = item
 	}
-	return item
+	return &trackedItem{TextView: item, ml: ml, messageIndex: row.messageIndex}
 }
 
 func (ml *messagesList) renderMessage(message discord.Message, baseStyle tcell.Style) []tview.Line {
@@ -932,8 +944,7 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 			ml.selectBottom()
 			return nil
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.SelectReply.Keybind):
-			ml.selectReply()
-			return nil
+			return ml.selectReply()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.YankID.Keybind):
 			return ml.yankMessageID()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.YankContent.Keybind):
@@ -964,10 +975,27 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		if ml.chat.guildsCollapsed && msg.Action == tview.MouseLeftClick && hitGuildsToggle(ml.Box, true, x, y) {
 			return toggleGuildsTree()
 		}
+		if msg.Action == tview.MouseLeftClick && hitMentionsButton(ml.Box, x, y) {
+			return toggleMentionsInbox()
+		}
+		if msg.Action == tview.MouseLeftClick && ml.InRect(x, y) && ml.jumpToMentionBar(y) {
+			return tview.SetFocus(ml)
+		}
 		if msg.Action == tview.MouseRightClick {
 			ml.Model.Update(tview.MouseMsg{EventMouse: msg.EventMouse, Action: tview.MouseLeftClick})
 			ml.onRowCursorChanged(ml.Model.Cursor())
 			return ml.showMessageMenu(x, y)
+		}
+		if msg.Action == tview.MouseLeftClick {
+			cmd := ml.Model.Update(msg)
+			ml.onRowCursorChanged(ml.Model.Cursor())
+			if message, ok := ml.authorAt(x, y); ok {
+				return tview.Sequence(cmd, ml.chat.openProfileCard(x, y, message))
+			}
+			if ref, ok := ml.replyPreviewAt(y); ok {
+				return tview.Sequence(cmd, ml.jumpToMessage(ref))
+			}
+			return cmd
 		}
 	case olderMessagesLoadedMsg:
 		return ml.onOlderMessagesLoaded(msg)
@@ -1031,25 +1059,44 @@ func (ml *messagesList) selectBottom() {
 	ml.SetCursor(len(ml.messages) - 1)
 }
 
-func (ml *messagesList) selectReply() {
-	messages := ml.messages
-	if len(messages) == 0 {
-		return
+func (ml *messagesList) selectReply() tview.Cmd {
+	message, ok := ml.selectedMessage()
+	if !ok || message.ReferencedMessage == nil {
+		return nil
 	}
+	return ml.jumpToMessage(*message.ReferencedMessage)
+}
 
-	cursor := ml.Cursor()
-	if cursor == -1 || cursor >= len(messages) {
-		return
+// replyPreviewAt returns the original message when y is on the reply preview
+// of the selected message.
+func (ml *messagesList) replyPreviewAt(y int) (discord.Message, bool) {
+	message, ok := ml.selectedMessage()
+	if !ok || message.Type != discord.InlinedReplyMessage || message.ReferencedMessage == nil {
+		return discord.Message{}, false
 	}
+	item, ok := ml.itemByID[message.ID]
+	if !ok {
+		return discord.Message{}, false
+	}
+	_, itemY, itemW, _ := item.Rect()
+	if row := y - itemY; row < 0 || row >= replyPreviewHeight(item.Lines(), itemW) {
+		return discord.Message{}, false
+	}
+	return *message.ReferencedMessage, true
+}
 
-	if ref := messages[cursor].ReferencedMessage; ref != nil {
-		refIdx := slices.IndexFunc(messages, func(m discord.Message) bool {
-			return m.ID == ref.ID
-		})
-		if refIdx != -1 {
-			ml.SetCursor(refIdx)
-		}
+// jumpToMessage selects target when it is loaded, and otherwise reloads the
+// channel back to it.
+func (ml *messagesList) jumpToMessage(target discord.Message) tview.Cmd {
+	if i := slices.IndexFunc(ml.messages, func(m discord.Message) bool { return m.ID == target.ID }); i != -1 {
+		ml.SetCursor(i)
+		return nil
 	}
+	channel, ok := ml.chat.SelectedChannel()
+	if !ok || channel.ID != target.ChannelID {
+		return nil
+	}
+	return ml.chat.guildsTree.loadChannelAt(*channel, target.ID)
 }
 
 func writeClipboardText(text string) tview.Cmd {
