@@ -12,6 +12,7 @@ import (
 	"github.com/ayn2op/tview/grid"
 	"github.com/ayn2op/tview/list"
 	"github.com/ayn2op/tview/picker"
+	"github.com/gdamore/tcell/v3"
 )
 
 // ConfigureBox configures the provided box according to the provided theme.
@@ -155,4 +156,19 @@ func getMessageIDFromChannel(channel discord.Channel) discord.MessageID {
 		return channel.LastMessageID
 	}
 	return discord.MessageID(channel.ID)
+}
+
+// ClearWideLeftEdge blanks any wide character that starts just left of the
+// box and spills into its first column. Terminals keep drawing such a
+// character over the box, which cuts the left border of popups.
+func ClearWideLeftEdge(screen tcell.Screen, box *tview.Box) {
+	x, y, _, height := box.Rect()
+	if x <= 0 {
+		return
+	}
+	for row := y; row < y+height; row++ {
+		if _, style, width := screen.Get(x-1, row); width > 1 {
+			screen.Put(x-1, row, " ", style)
+		}
+	}
 }
